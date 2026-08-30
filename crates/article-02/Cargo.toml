@@ -1,0 +1,60 @@
+[package]
+name = "article-02"
+version = "0.1.0"
+edition = "2024"
+authors = ["yehun"]
+description = "第二幕: 地基与三端初始化 — 最小可运行的三端 Slint demo"
+build = "build.rs"
+
+[dependencies]
+slint = { workspace = true }
+wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = { workspace = true }
+console_error_panic_hook = { workspace = true }
+web-sys = { workspace = true }
+js-sys = { workspace = true }
+i-slint-backend-winit = { git = "https://github.com/slint-ui/slint.git", branch = "master" }
+i-slint-renderer-software = { git = "https://github.com/slint-ui/slint.git", branch = "master" }
+
+[build-dependencies]
+slint-build = { workspace = true }
+
+[features]
+default = ["desktop"]
+# desktop: winit 后端 (默认)
+desktop = []
+# android: android-activity 后端
+android = ["slint/backend-android-activity-06"]
+# wasm: 使用软件渲染器
+wasm = ["slint/renderer-software"]
+
+[lib]
+path = "src/lib.rs"
+crate-type = ["cdylib"]
+
+[[bin]]
+path = "src/main.rs"
+name = "article-02"
+
+[package.metadata.android]
+package = "com.yehun.article_02"
+build_targets = ["aarch64-linux-android"]
+min_sdk_version = 30
+target_sdk_version = 35
+compile_sdk_version = 35
+java_sources = "platform/android/java"
+
+[package.metadata.android.application]
+label = "Article 02"
+
+[[package.metadata.android.application.activity]]
+name = "com.yehun.article_02.MainActivity"
+exported = true
+
+[[package.metadata.android.application.activity.intent_filter]]
+actions = ["android.intent.action.VIEW", "android.intent.action.MAIN"]
+categories = ["android.intent.category.DEFAULT", "android.intent.category.LAUNCHER"]
+
+[[package.metadata.android.application.activity.meta_data]]
+name = "android.app.lib_name"
+value = "article_02"

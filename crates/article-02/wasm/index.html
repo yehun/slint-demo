@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Slint Demo - 三端初始化 (WASM)</title>
+    <style>
+        html, body {
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            padding: 0;
+            margin: 0;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas" unselectable="on"></canvas>
+    <script type="module">
+        import init from './article_02.js';
+
+        async function run() {
+            await init();
+
+            const canvas = document.getElementById('canvas');
+            if (!canvas) return;
+
+            /**
+             * 等比 DPI 缩放:
+             * 1. canvas CSS 尺寸 = 窗口逻辑尺寸 (style.width/height)
+             * 2. winit ResizeObserver 检测 content box 变化, 按 devicePixelRatio
+             *    换算物理像素, 通知 Slint 以正确分辨率重绘 (高 DPI 清晰)
+             * 3. devicePixelRatio 变化 (浏览器缩放/跨屏) 时 winit 内部
+             *    MediaQueryList 自动触发重新缩放
+             */
+            function resize() {
+                canvas.style.width = window.innerWidth + 'px';
+                canvas.style.height = window.innerHeight + 'px';
+            }
+
+            window.addEventListener('resize', resize);
+            resize();
+        }
+
+        run().catch(err => {
+            console.error('加载失败:', err);
+        });
+    </script>
+</body>
+</html>
