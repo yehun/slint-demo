@@ -2,7 +2,7 @@
 
 Slint 跨平台系列文章的 **配套 demo 仓库**.
 
-> 系列文章源码首发: [codeai.cn](https://codeai.cn) | 掘金主发 | 知乎立名 | 公众号沉淀
+> 项目地址: [github.com/yehun/slint-demo](https://github.com/yehun/slint-demo)
 
 ---
 
