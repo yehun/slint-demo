@@ -1,0 +1,18 @@
+[package]
+name = "article-03"
+version = "0.1.0"
+edition = "2024"
+authors = ["yehun"]
+description = "第三幕: 自定义无头窗口 — 用 Slint + winit 实现带自定义标题栏的无边框窗口"
+build = "build.rs"
+
+[dependencies]
+slint = { workspace = true }
+i-slint-backend-winit = { git = "https://github.com/slint-ui/slint.git", branch = "master" }
+
+[build-dependencies]
+slint-build = { workspace = true }
+
+[[bin]]
+path = "src/main.rs"
+name = "article-03"

@@ -1,0 +1,199 @@
+// 主窗口: 无边框窗口 + 自定义标题栏 + 内容区
+
+import { Button, LineEdit } from "std-widgets.slint";
+
+export component MainWindow inherits Window {
+    no-frame: true;
+    preferred-width: 700px;
+    preferred-height: 500px;
+    min-width: 360px;
+    min-height: 280px;
+    background: #1e1e1e;
+    title: "Slint 无头窗口 Demo";
+    resize-border-width: 6px;                 // 四边四角缩放热区
+
+    in-out property <bool> is-maximized: false;
+    in-out property <string> input-text: "";
+    in-out property <int> counter: 0;
+
+    // 回调 — Rust 侧实现
+    callback close-window();
+    callback move-window();
+    callback min-window(minimized: bool);
+    callback max-window(maximized: bool);
+
+    // 标题栏拖动状态
+    private property <bool> enable-move: false;
+
+    VerticalLayout {
+        // === 标题栏 ===
+        Rectangle {
+            height: 32px;
+            background: #2d2d2d;
+
+            // 拖动 + 双击最大化
+            TouchArea {
+                width: 100%;
+                height: 100%;
+
+                moved => {
+                    if (root.enable-move) {
+                        root.move-window();
+                    }
+                }
+
+                pointer-event(event) => {
+                    if (event.button == PointerEventButton.left) {
+                        root.enable-move = event.kind == PointerEventKind.down;
+                    }
+                }
+
+                double-clicked => {
+                    root.max-window(!root.is-maximized);
+                }
+            }
+
+            // 标题文字
+            Text {
+                x: 12px;
+                text: root.title;
+                color: white;
+                font-size: 14px;
+                vertical-alignment: center;
+            }
+
+            HorizontalLayout {
+                alignment: end;
+                padding-right: 0px;
+
+                // 最小化
+                Rectangle {
+                    width: 46px;
+                    height: 32px;
+                    background: min-touch.has-hover ? #444 : transparent;
+                    min-touch := TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        clicked => { root.min-window(true); }
+                    }
+
+                    Text {
+                        text: "—";
+                        color: white;
+                        font-size: 16px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                        width: 100%;
+                        height: 100%;
+                    }
+                }
+
+                // 最大化/还原
+                Rectangle {
+                    width: 46px;
+                    height: 32px;
+                    background: max-touch.has-hover ? #444 : transparent;
+                    max-touch := TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        clicked => { root.max-window(!root.is-maximized); }
+                    }
+
+                    Text {
+                        text: root.is-maximized ? "❐" : "□";
+                        color: white;
+                        font-size: 16px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                        width: 100%;
+                        height: 100%;
+                    }
+                }
+
+                // 关闭
+                Rectangle {
+                    width: 46px;
+                    height: 32px;
+                    background: close-touch.has-hover ? #e81123 : transparent;
+                    close-touch := TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        clicked => { root.close-window(); }
+                    }
+
+                    Text {
+                        text: "✕";
+                        color: white;
+                        font-size: 14px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                        width: 100%;
+                        height: 100%;
+                    }
+                }
+            }
+        }
+
+        // === 内容区 (占满剩余空间) ===
+        Rectangle {
+            vertical-stretch: 1;
+            background: #1e1e1e;
+
+            VerticalLayout {
+                padding: 24px;
+                spacing: 16px;
+
+                Text {
+                    text: "第三幕: 自定义无头窗口";
+                    color: white;
+                    font-size: 22px;
+                    horizontal-alignment: center;
+                }
+
+                Text {
+                    text: "no-frame: true 去掉系统标题栏, 自己画一个.";
+                    color: #aaaaaa;
+                    font-size: 14px;
+                    horizontal-alignment: center;
+                }
+
+                HorizontalLayout {
+                    alignment: center;
+                    spacing: 12px;
+                    vertical-stretch: 0;
+
+                    Text {
+                        text: "计数: " + root.counter;
+                        color: white;
+                        font-size: 18px;
+                    }
+
+                    Button {
+                        text: "+1";
+                        height: 30px;
+                        clicked => { root.counter += 1; }
+                    }
+
+                    Button {
+                        text: "重置";
+                        height: 30px;
+                        clicked => { root.counter = 0; }
+                    }
+                }
+
+                LineEdit {
+                    placeholder-text: "输入点什么...";
+                    text <=> root.input-text;
+                    height: 40px;
+                    vertical-stretch: 0;
+                }
+
+                Text {
+                    text: root.input-text.is-empty ? "等待输入..." : "你输入了: " + root.input-text;
+                    color: #888888;
+                    font-size: 13px;
+                }
+            }
+        }
+    }
+}

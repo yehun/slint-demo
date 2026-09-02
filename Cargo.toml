@@ -2,12 +2,13 @@
 members = [
     "crates/slint-common",
     "crates/article-02",
+    "crates/article-03",
 ]
 resolver = "2"
 
 # 共享依赖版本, 各 crate 只需写 version.workspace = true
 [workspace.dependencies]
-# 使用 master 分支 (与 yehun-slint 一致), WASM 支持更好
+# 使用 master 分支 (与 yehun-slint 一致)
 slint = { git = "https://github.com/slint-ui/slint.git", branch = "master", features = ["gettext", "accessibility", "renderer-software"] }
 slint-build = { git = "https://github.com/slint-ui/slint.git", branch = "master" }
 jni = "0.21"
