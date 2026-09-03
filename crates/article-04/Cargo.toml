@@ -1,0 +1,18 @@
+[package]
+name = "article-04"
+version = "0.1.0"
+edition = "2024"
+authors = ["yehun"]
+description = "第四幕: 窗口居中与多显示器适配 — DPI 缩放、多屏坐标、off-screen 检测"
+build = "build.rs"
+
+[dependencies]
+slint = { workspace = true }
+i-slint-backend-winit = { git = "https://github.com/slint-ui/slint.git", branch = "master" }
+
+[build-dependencies]
+slint-build = { workspace = true }
+
+[[bin]]
+path = "src/main.rs"
+name = "article-04"

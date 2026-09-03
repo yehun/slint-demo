@@ -3,6 +3,7 @@ members = [
     "crates/slint-common",
     "crates/article-02",
     "crates/article-03",
+    "crates/article-04",
 ]
 resolver = "2"
 

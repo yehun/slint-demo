@@ -337,6 +337,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "article-04"
+version = "0.1.0"
+dependencies = [
+ "i-slint-backend-winit",
+ "slint",
+ "slint-build",
+]
+
+[[package]]
 name = "as-raw-xcb-connection"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

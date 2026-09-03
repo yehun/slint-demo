@@ -1,27 +1,28 @@
-// 主窗口: 无边框窗口 + 自定义标题栏 + 内容区
-
 import { Button, LineEdit } from "std-widgets.slint";
 
 export component MainWindow inherits Window {
     no-frame: true;
-    preferred-width: 700px;
-    preferred-height: 500px;
+    preferred-width: 600px;
+    preferred-height: 450px;
     min-width: 360px;
     min-height: 280px;
     background: #1e1e1e;
-    title: "Slint 无头窗口 Demo";
+    title: "Slint 窗口居中 Demo";
     default-font-family: "MiSans";
-    resize-border-width: 6px;                 // 四边四角缩放热区
+    resize-border-width: 6px;
 
     in-out property <bool> is-maximized: false;
-    in-out property <string> input-text: "";
-    in-out property <int> counter: 0;
+    in-out property <string> monitor-info: "加载中...";
+    in-out property <string> status-text: "窗口已居中";
 
     // 回调 — Rust 侧实现
     callback close-window();
     callback move-window();
     callback min-window(minimized: bool);
     callback max-window(maximized: bool);
+    callback center-window();
+    callback recover-window();
+    callback query-monitors() -> string;
 
     // 标题栏拖动状态
     private property <bool> enable-move: false;
@@ -32,29 +33,24 @@ export component MainWindow inherits Window {
             height: 32px;
             background: #2d2d2d;
 
-            // 拖动 + 双击最大化
             TouchArea {
                 width: 100%;
                 height: 100%;
-
                 moved => {
                     if (root.enable-move) {
                         root.move-window();
                     }
                 }
-
                 pointer-event(event) => {
                     if (event.button == PointerEventButton.left) {
                         root.enable-move = event.kind == PointerEventKind.down;
                     }
                 }
-
                 double-clicked => {
                     root.max-window(!root.is-maximized);
                 }
             }
 
-            // 标题文字
             Text {
                 x: 12px;
                 text: root.title;
@@ -65,7 +61,6 @@ export component MainWindow inherits Window {
 
             HorizontalLayout {
                 alignment: end;
-                padding-right: 0px;
 
                 // 最小化
                 Rectangle {
@@ -77,7 +72,6 @@ export component MainWindow inherits Window {
                         height: 100%;
                         clicked => { root.min-window(true); }
                     }
-
                     Text {
                         text: "—";
                         color: white;
@@ -99,7 +93,6 @@ export component MainWindow inherits Window {
                         height: 100%;
                         clicked => { root.max-window(!root.is-maximized); }
                     }
-
                     Text {
                         text: root.is-maximized ? "❐" : "□";
                         color: white;
@@ -121,7 +114,6 @@ export component MainWindow inherits Window {
                         height: 100%;
                         clicked => { root.close-window(); }
                     }
-
                     Text {
                         text: "✕";
                         color: white;
@@ -135,7 +127,7 @@ export component MainWindow inherits Window {
             }
         }
 
-        // === 内容区 (占满剩余空间) ===
+        // === 内容区 ===
         Rectangle {
             vertical-stretch: 1;
             background: #1e1e1e;
@@ -145,54 +137,85 @@ export component MainWindow inherits Window {
                 spacing: 16px;
 
                 Text {
-                    text: "第三幕: 自定义无头窗口";
+                    text: "第四幕: 窗口居中与多显示器适配";
                     color: white;
                     font-size: 22px;
                     horizontal-alignment: center;
                 }
 
                 Text {
-                    text: "no-frame: true 去掉系统标题栏, 自己画一个.";
+                    text: "DPI 缩放 · 多屏坐标 · off-screen 检测";
                     color: #aaaaaa;
                     font-size: 14px;
                     horizontal-alignment: center;
                 }
 
+                // 操作按钮
                 HorizontalLayout {
                     alignment: center;
                     spacing: 12px;
                     vertical-stretch: 0;
 
-                    Text {
-                        text: "计数: " + root.counter;
-                        color: white;
-                        font-size: 18px;
+                    Button {
+                        text: "居中窗口";
+                        height: 36px;
+                        clicked => {
+                            root.center-window();
+                            root.status-text = "窗口已居中";
+                        }
                     }
 
                     Button {
-                        text: "+1";
-                        height: 30px;
-                        clicked => { root.counter += 1; }
+                        text: "恢复到主屏";
+                        height: 36px;
+                        clicked => {
+                            root.recover-window();
+                            root.status-text = "已恢复到主显示器";
+                        }
                     }
 
                     Button {
-                        text: "重置";
-                        height: 30px;
-                        clicked => { root.counter = 0; }
+                        text: "查询显示器";
+                        height: 36px;
+                        clicked => {
+                            root.monitor-info = root.query-monitors();
+                            root.status-text = "已刷新显示器信息";
+                        }
                     }
                 }
 
-                LineEdit {
-                    placeholder-text: "输入点什么...";
-                    text <=> root.input-text;
-                    height: 40px;
-                    vertical-stretch: 0;
+                // 显示器信息区
+                Rectangle {
+                    background: #2a2a2a;
+                    border-radius: 6px;
+                    vertical-stretch: 1;
+
+                    VerticalLayout {
+                        padding: 16px;
+                        spacing: 8px;
+
+                        Text {
+                            text: "显示器信息";
+                            color: #cccccc;
+                            font-size: 14px;
+                            font-weight: 700;
+                        }
+
+                        Text {
+                            text: root.monitor-info;
+                            color: #999999;
+                            font-size: 13px;
+                            wrap: word-wrap;
+                        }
+                    }
                 }
 
+                // 状态栏
                 Text {
-                    text: root.input-text.is-empty ? "等待输入..." : "你输入了: " + root.input-text;
-                    color: #888888;
-                    font-size: 13px;
+                    text: root.status-text;
+                    color: #666666;
+                    font-size: 12px;
+                    horizontal-alignment: center;
                 }
             }
         }
