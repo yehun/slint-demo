@@ -201,21 +201,23 @@ dependencies = [
 
 [[package]]
 name = "android-activity"
-version = "0.6.1"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f2a1bb052857d5dd49572219344a7332b31b76405648eabac5bc68978251bcd"
+checksum = "ef6978589202a00cd7e118380c448a08b6ed394c3a8df3a430d0898e3a42d046"
 dependencies = [
  "android-properties",
  "bitflags 2.13.1",
  "cc",
- "jni 0.22.4",
+ "cesu8",
+ "jni 0.21.1",
+ "jni-sys 0.3.1",
  "libc",
  "log",
  "ndk 0.9.0",
  "ndk-context",
  "ndk-sys 0.6.0+11769913",
  "num_enum",
- "thiserror 2.0.20",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -284,7 +286,7 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "parking_lot",
  "percent-encoding",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
  "wl-clipboard-rs",
  "x11rb",
 ]
@@ -341,6 +343,15 @@ name = "article-04"
 version = "0.1.0"
 dependencies = [
  "i-slint-backend-winit",
+ "slint",
+ "slint-build",
+]
+
+[[package]]
+name = "article-05"
+version = "0.1.0"
+dependencies = [
+ "jni 0.22.3",
  "slint",
  "slint-build",
 ]
@@ -1875,12 +1886,12 @@ version = "1.18.0"
 source = "git+https://github.com/slint-ui/slint.git?branch=master#49f0f64f2a0c706aec39f22b91be56a5dfe4c0c4"
 dependencies = [
  "android-activity 0.5.2",
- "android-activity 0.6.1",
+ "android-activity 0.6.0",
  "android-build",
  "i-slint-common",
  "i-slint-core",
  "i-slint-renderer-skia",
- "jni 0.22.4",
+ "jni 0.22.3",
  "ndk 0.9.0",
  "raw-window-handle",
 ]
@@ -2529,9 +2540,9 @@ dependencies = [
 
 [[package]]
 name = "jni"
-version = "0.22.4"
+version = "0.22.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5efd9a482cf3a427f00d6b35f14332adc7902ce91efb778580e180ff90fa3498"
+checksum = "295dc9997acda1562fdf8d299f56063c936443b60f078e63a5d8d3c34ef2642b"
 dependencies = [
  "cfg-if",
  "combine",
@@ -2546,9 +2557,9 @@ dependencies = [
 
 [[package]]
 name = "jni-macros"
-version = "0.22.4"
+version = "0.22.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a00109accc170f0bdb141fed3e393c565b6f5e072365c3bd58f5b062591560a3"
+checksum = "1c3d1da60c95c98847b26b9d45f4360fee718b31de746df016d9cd6de916a7ef"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3505,7 +3516,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d8fae84b431384b68627d0f9b3b1245fcf9f46f6c0e3dc902e9dce64edd1967"
 dependencies = [
  "libc",
- "windows-sys 0.45.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4493,7 +4504,7 @@ dependencies = [
 name = "slint-common"
 version = "0.1.0"
 dependencies = [
- "jni 0.21.1",
+ "jni 0.22.3",
  "slint",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -5437,7 +5448,7 @@ version = "1.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "62c35be770821a214dbc362fc26908c853e776c0004294d0b10b8a6bad582f94"
 dependencies = [
- "jni 0.22.4",
+ "jni 0.22.3",
  "log",
  "ndk-context",
  "objc2 0.6.4",
@@ -5824,7 +5835,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6755fa58a9f8350bd1e472d4c3fcc25f824ec358933bba33306d0b63df5978d"
 dependencies = [
  "ahash",
- "android-activity 0.6.1",
+ "android-activity 0.6.0",
  "atomic-waker",
  "bitflags 2.13.1",
  "block2 0.5.1",

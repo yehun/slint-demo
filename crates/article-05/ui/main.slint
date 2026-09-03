@@ -1,0 +1,216 @@
+import { Button, VerticalBox, HorizontalBox, TextEdit } from "std-widgets.slint";
+
+export component DeviceInfoWindow inherits Window {
+    preferred-width: 460px;
+    preferred-height: 580px;
+    title: "第五幕: JNI 对接 Android API";
+    default-font-family: "MiSans";
+
+    // === 当前选中的标签页 ===
+    in-out property <int> current-tab: 0;
+
+    // === 设备信息 ===
+    in-out property <string> device-info: "点击按钮获取设备信息";
+    in-out property <string> battery-info: "点击按钮获取电池信息";
+    in-out property <string> network-info: "点击按钮获取网络信息";
+    in-out property <string> status-text: "就绪 — 点击按钮体验 JNI 调用";
+
+    // === 回调 ===
+    callback get-device-info();
+    callback get-battery-info();
+    callback get-network-info();
+    callback show-toast();
+    callback simulate-java-event();
+
+    VerticalBox {
+        padding: 0px;
+        spacing: 0px;
+
+        // === 标题栏 ===
+        Rectangle {
+            height: 56px;
+            background: #1a73e8;
+
+            Text {
+                text: "Slint × JNI × Android API";
+                font-size: 18px;
+                font-weight: 700;
+                color: #ffffff;
+                y: 16px;
+                x: 16px;
+            }
+        }
+
+        // === Tab 按钮栏 ===
+        HorizontalBox {
+            height: 40px;
+                Rectangle {
+                    width: 25%;
+                    background: root.current-tab == 0 ? #fff : #f0f0f0;
+                    TouchArea {
+                        clicked => { root.current-tab = 0; }
+                    }
+                    Text { text: "设备"; font-size: 13px; font-weight: root.current-tab == 0 ? 600 : 400; color: root.current-tab == 0 ? #1a73e8 : #666; horizontal-alignment: center; vertical-alignment: center; }
+                }
+                Rectangle {
+                    width: 25%;
+                    background: root.current-tab == 1 ? #fff : #f0f0f0;
+                    TouchArea {
+                        clicked => { root.current-tab = 1; }
+                    }
+                    Text { text: "电池"; font-size: 13px; font-weight: root.current-tab == 1 ? 600 : 400; color: root.current-tab == 1 ? #1a73e8 : #666; horizontal-alignment: center; vertical-alignment: center; }
+                }
+                Rectangle {
+                    width: 25%;
+                    background: root.current-tab == 2 ? #fff : #f0f0f0;
+                    TouchArea {
+                        clicked => { root.current-tab = 2; }
+                    }
+                    Text { text: "网络"; font-size: 13px; font-weight: root.current-tab == 2 ? 600 : 400; color: root.current-tab == 2 ? #1a73e8 : #666; horizontal-alignment: center; vertical-alignment: center; }
+                }
+                Rectangle {
+                    width: 25%;
+                    background: root.current-tab == 3 ? #fff : #f0f0f0;
+                    TouchArea {
+                        clicked => { root.current-tab = 3; }
+                    }
+                    Text { text: "JNI演示"; font-size: 13px; font-weight: root.current-tab == 3 ? 600 : 400; color: root.current-tab == 3 ? #1a73e8 : #666; horizontal-alignment: center; vertical-alignment: center; }
+                }
+        }
+
+        // === 内容区: 根据 current-tab 显示不同页面 ===
+        // 使用 if 条件控制显示
+
+        // --- 设备信息页 ---
+        if root.current-tab == 0: VerticalBox {
+            padding: 16px;
+            spacing: 12px;
+
+            TextEdit {
+                text: root.device-info;
+                read-only: true;
+                height: 200px;
+                font-size: 14px;
+            }
+
+            Button {
+                text: "📱 获取设备信息 (Build.MODEL)";
+                clicked => { root.get-device-info(); }
+            }
+
+            Text {
+                text: "通过 JNI 读取 android.os.Build 类的静态字段, 获取设备型号、制造商、系统版本等信息。";
+                font-size: 11px;
+                color: #888;
+            }
+        }
+
+        // --- 电池信息页 ---
+        if root.current-tab == 1: VerticalBox {
+            padding: 16px;
+            spacing: 12px;
+
+            TextEdit {
+                text: root.battery-info;
+                read-only: true;
+                height: 200px;
+                font-size: 14px;
+            }
+
+            Button {
+                text: "🔋 获取电池信息 (BatteryManager)";
+                clicked => { root.get-battery-info(); }
+            }
+
+            Text {
+                text: "通过 JNI 调用 BatteryManager.getIntProperty() 获取电量百分比, 并通过 registerReceiver 读取充电状态。";
+                font-size: 11px;
+                color: #888;
+            }
+        }
+
+        // --- 网络信息页 ---
+        if root.current-tab == 2: VerticalBox {
+            padding: 16px;
+            spacing: 12px;
+
+            TextEdit {
+                text: root.network-info;
+                read-only: true;
+                height: 200px;
+                font-size: 14px;
+            }
+
+            Button {
+                text: "🌐 获取网络信息 (ConnectivityManager)";
+                clicked => { root.get-network-info(); }
+            }
+
+            Text {
+                text: "通过 JNI 调用 ConnectivityManager.getActiveNetworkInfo() 获取网络类型和连接状态。";
+                font-size: 11px;
+                color: #888;
+            }
+        }
+
+        // --- JNI 演示页 ---
+        if root.current-tab == 3: VerticalBox {
+            padding: 16px;
+            spacing: 12px;
+
+            Text {
+                text: "Rust → Java: 调用 Android API";
+                font-size: 14px;
+                font-weight: 600;
+            }
+
+            Button {
+                text: "🔔 弹出 Toast.makeText()";
+                clicked => { root.show-toast(); }
+            }
+
+            Text {
+                text: "Rust 通过 JNI 调用 Toast.makeText(context, text, LENGTH_SHORT).show()";
+                font-size: 11px;
+                color: #888;
+            }
+
+            Text {
+                text: "Java → Rust: 反向调用";
+                font-size: 14px;
+                font-weight: 600;
+            }
+
+            Button {
+                text: "📨 模拟 Java 调用 Rust";
+                clicked => { root.simulate-java-event(); }
+            }
+
+            Text {
+                text: "Java 通过 JNI 调用 Rust 导出的 #[no_mangle] 函数, 触发 UI 更新。函数名格式: Java_包名_类名_方法名。";
+                font-size: 11px;
+                color: #888;
+            }
+
+            Text {
+                text: "Desktop 端为模拟实现, 真实效果需 Android 设备。";
+                font-size: 11px;
+                color: #e74c3c;
+            }
+        }
+
+        // === 状态栏 ===
+        Rectangle {
+            height: 36px;
+            background: #f5f5f5;
+
+            Text {
+                text: root.status-text;
+                font-size: 12px;
+                color: #555;
+                y: 10px;
+                x: 12px;
+            }
+        }
+    }
+}

@@ -4,6 +4,7 @@ members = [
     "crates/article-02",
     "crates/article-03",
     "crates/article-04",
+    "crates/article-05",
 ]
 resolver = "2"
 
@@ -12,7 +13,7 @@ resolver = "2"
 # 使用 master 分支 (与 yehun-slint 一致)
 slint = { git = "https://github.com/slint-ui/slint.git", branch = "master", features = ["gettext", "accessibility", "renderer-software"] }
 slint-build = { git = "https://github.com/slint-ui/slint.git", branch = "master" }
-jni = "0.21"
+jni = "0.22"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 console_error_panic_hook = "0.1"

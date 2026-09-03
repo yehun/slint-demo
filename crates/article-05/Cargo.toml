@@ -1,0 +1,69 @@
+[package]
+name = "article-05"
+version = "0.1.0"
+edition = "2024"
+authors = ["yehun"]
+description = "第五幕: Slint基于JNI对接Android API交互 — Rust调Java, Java调Rust"
+build = "build.rs"
+
+[dependencies]
+slint = { workspace = true }
+jni = { workspace = true }
+
+[build-dependencies]
+slint-build = { workspace = true }
+
+[features]
+default = ["desktop"]
+# desktop: winit 后端 (默认)
+desktop = []
+# android: android-activity 后端
+android = ["slint/backend-android-activity-06"]
+
+[lib]
+path = "src/lib.rs"
+crate-type = ["cdylib"]
+
+[[bin]]
+path = "src/main.rs"
+name = "article-05"
+
+[package.metadata.android]
+use_aapt2 = true
+use_gradle = true
+package = "com.example.article_05"
+build_targets = ["aarch64-linux-android"]
+min_sdk_version = 30
+target_sdk_version = 35
+compile_sdk_version = 35
+java_sources = "android/java"
+
+[package.metadata.android.application]
+label = "Article 05 - JNI Demo"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.INTERNET"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.BATTERY_STATS"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.ACCESS_NETWORK_STATE"
+
+[[package.metadata.android.application.activity]]
+name = "com.example.article_05.MainActivity"
+orientation = "portrait"
+launch_mode = "singleTop"
+# launch_mode = "standard"
+config_changes = "uiMode|screenSize|screenLayout|density|keyboard|keyboardHidden"
+exported = true
+resizeable_activity = false
+always_retain_task_state = true
+
+[[package.metadata.android.application.activity.intent_filter]]
+actions = ["android.intent.action.VIEW", "android.intent.action.MAIN"]
+categories = ["android.intent.category.DEFAULT", "android.intent.category.LAUNCHER"]
+
+[[package.metadata.android.application.activity.meta_data]]
+name = "android.app.lib_name"
+value = "article_05"
