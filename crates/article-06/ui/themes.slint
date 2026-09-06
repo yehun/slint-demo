@@ -1,0 +1,41 @@
+// 第六幕: 主题控制器 (合并了 ThemeController)
+import { MaterialPalette } from "@material";
+
+export global ThemeSwitcher {
+    // === 多主题切换 ===
+    in-out property <int> current: 0;
+
+    in-out property <[string]> theme-names: [
+        "Green",
+        "LightBlue",
+        "Purple",
+        "Red",
+        "Slint",
+        "Wechat",
+    ];
+
+    callback apply(int);
+    callback applied(int);
+
+    apply(index) => {
+        root.current = index;
+        root.applied(index);
+    }
+
+    // === 深色模式切换 (-1=dark, 0=follow system, 1=light) ===
+    in-out property <int> color-mode: 0;
+
+    changed color-mode => {
+        if (root.color-mode == 1) {
+            MaterialPalette.color-mode = ColorScheme.light;
+        } else if (root.color-mode == -1) {
+            MaterialPalette.color-mode = ColorScheme.dark;
+        } else {
+            MaterialPalette.color-mode = ColorScheme.unknown;
+        }
+    }
+
+    // === 多主题切换 callback (供 Rust 端调用) ===
+    callback set-theme(int);
+    set-theme(index) => { root.apply(index); }
+}

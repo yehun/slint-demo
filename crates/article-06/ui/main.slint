@@ -1,0 +1,582 @@
+// 第六幕: Material 主题主窗口
+// 展示: MaterialWindow / 深色模式切换 / 组件体系 / 状态层
+
+import {
+    MaterialWindow,
+    MaterialPalette,
+    MaterialTypography,
+    MaterialStyleMetrics,
+    MaterialText,
+} from "@material";
+
+import { ThemeSwitcher } from "themes.slint";
+
+export { ThemeSwitcher }
+
+import {
+    SmallAppBar,
+    FilledButton,
+    OutlineButton,
+    TextButton,
+    ElevatedButton,
+    TonalButton,
+    FilledIconButton,
+    IconButton,
+    ElevatedCard,
+    FilledCard,
+    OutlinedCard,
+    TextField,
+    Switch,
+    CheckState,
+    CheckBox,
+    RadioButton,
+    ListTile,
+    HorizontalDivider,
+    TabBar,
+    SnackBar,
+    ScrollView,
+    Icons,
+    CircularProgressIndicator,
+    LinearProgressIndicator,
+} from "@material";
+
+export component MainWindow inherits MaterialWindow {
+    // Android 上没有鼠标悬停, 必须关闭
+    disable_hover: true;
+
+    // 背景跟随主题
+    background: MaterialPalette.background;
+    default-font-family: "MiSans";
+    default-font-size: MaterialTypography.body_large.font_size;
+
+    // === 属性 ===
+    in-out property <int> current-tab: 0;
+    in-out property <string> status-text: "Material 主题已就绪 — 点击「深色模式」开关体验主题切换";
+    in-out property <bool> dark-mode: false;
+    in-out property <bool> notifications: true;
+    in-out property <string> username: "";
+    in-out property <string> snackbar-text;
+    in-out property <bool> snackbar-visible;
+
+    preferred-width: 460px;
+    preferred-height: 680px;
+
+    // === 回调 ===
+    callback save-settings();
+    callback set-theme(int);
+    callback set-dark-mode(bool);
+
+    set-theme(index) => { ThemeSwitcher.set-theme(index); }
+    set-dark-mode(enabled) => { root.dark-mode = enabled; }
+
+    // === 主题切换处理 ===
+    changed dark-mode => {
+        if (root.dark-mode) {
+            ThemeSwitcher.color-mode = -1;
+        } else {
+            ThemeSwitcher.color-mode = 1;
+        }
+        root.status-text = root.dark-mode ? "已切换到深色模式" : "已切换到浅色模式";
+    }
+
+    VerticalLayout {
+        padding: 0px;
+        padding-top: root.safe-area-insets.top;
+        padding-bottom: root.safe-area-insets.bottom;
+        spacing: 0px;
+
+        // ===== 顶部应用栏 =====
+        SmallAppBar {
+            title: "Material Theme";
+        }
+
+        // ===== Tab 栏 =====
+        TabBar {
+            items: [
+                { text: "组件" },
+                { text: "输入" },
+                { text: "设置" },
+            ];
+            current-index: root.current-tab;
+            index-changed(index) => {
+                root.current-tab = index;
+            }
+        }
+
+        // ===== 内容区 (根据 Tab 切换) =====
+
+        // --- Tab 0: 组件展示 ---
+        if root.current-tab == 0: ScrollView {
+            vertical_scrollbar_policy: ScrollBarPolicy.as_needed;
+
+            VerticalLayout {
+                padding: MaterialStyleMetrics.padding_16;
+                spacing: MaterialStyleMetrics.spacing_12;
+                alignment: start;
+
+                MaterialText {
+                    text: "按钮";
+                    style: MaterialTypography.title_medium;
+                    color: MaterialPalette.primary;
+                }
+
+                // 第一行按钮
+                HorizontalLayout {
+                    spacing: MaterialStyleMetrics.spacing_8;
+                    alignment: center;
+
+                    FilledButton {
+                        text: "Filled";
+                        max-height: 40px;
+                        clicked => {
+                            root.snackbar-text = "FilledButton clicked";
+                            root.snackbar-visible = true;
+                        }
+                    }
+
+                    OutlineButton {
+                        text: "Outline";
+                        max-height: 40px;
+                        clicked => {
+                            root.snackbar-text = "OutlineButton clicked";
+                            root.snackbar-visible = true;
+                        }
+                    }
+
+                    TextButton {
+                        text: "Text";
+                        max-height: 40px;
+                        clicked => {
+                            root.snackbar-text = "TextButton clicked";
+                            root.snackbar-visible = true;
+                        }
+                    }
+                }
+
+                // 第二行按钮
+                HorizontalLayout {
+                    spacing: MaterialStyleMetrics.spacing_8;
+                    alignment: center;
+
+                    ElevatedButton {
+                        text: "Elevated";
+                        max-height: 40px;
+                        clicked => {
+                            root.status-text = "ElevatedButton — 带阴影浮起效果";
+                        }
+                    }
+
+                    TonalButton {
+                        text: "Tonal";
+                        max-height: 40px;
+                        clicked => {
+                            root.status-text = "TonalButton — 次强调色填充";
+                        }
+                    }
+                }
+
+                HorizontalDivider {}
+
+                MaterialText {
+                    text: "卡片";
+                    style: MaterialTypography.title_medium;
+                    color: MaterialPalette.primary;
+                }
+
+                // 三种卡片
+                HorizontalLayout {
+                    spacing: MaterialStyleMetrics.spacing_8;
+
+                    ElevatedCard {
+                        width: 100px;
+                        height: 60px;
+
+                        VerticalLayout {
+                            padding: MaterialStyleMetrics.padding_8;
+                            MaterialText {
+                                text: "Elevated";
+                                style: MaterialTypography.label_medium;
+                                color: MaterialPalette.on_surface;
+                            }
+                        }
+                    }
+
+                    FilledCard {
+                        width: 100px;
+                        height: 60px;
+
+                        VerticalLayout {
+                            padding: MaterialStyleMetrics.padding_8;
+                            MaterialText {
+                                text: "Filled";
+                                style: MaterialTypography.label_medium;
+                                color: MaterialPalette.on_surface;
+                            }
+                        }
+                    }
+
+                    OutlinedCard {
+                        width: 100px;
+                        height: 60px;
+
+                        VerticalLayout {
+                            padding: MaterialStyleMetrics.padding_8;
+                            MaterialText {
+                                text: "Outlined";
+                                style: MaterialTypography.label_medium;
+                                color: MaterialPalette.on_surface;
+                            }
+                        }
+                    }
+                }
+
+                HorizontalDivider {}
+
+                MaterialText {
+                    text: "进度指示器";
+                    style: MaterialTypography.title_medium;
+                    color: MaterialPalette.primary;
+                }
+
+                HorizontalLayout {
+                    spacing: MaterialStyleMetrics.spacing_16;
+                    alignment: center;
+
+                    CircularProgressIndicator {
+                        width: 36px;
+                        height: 36px;
+                    }
+
+                    LinearProgressIndicator {
+                        width: 120px;
+                        progress: 65%;
+                    }
+                }
+
+                HorizontalDivider {}
+
+                MaterialText {
+                    text: "复选与单选";
+                    style: MaterialTypography.title_medium;
+                    color: MaterialPalette.primary;
+                }
+
+                HorizontalLayout {
+                    spacing: MaterialStyleMetrics.spacing_16;
+                    alignment: center;
+
+                    HorizontalLayout {
+                        alignment: center;
+
+                        CheckBox {
+                            check-state: CheckState.checked;
+                        }
+                        MaterialText {
+                            text: " 选项 A";
+                            style: MaterialTypography.body_medium;
+                            color: MaterialPalette.on_surface;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    HorizontalLayout {
+                        alignment: center;
+
+                        CheckBox {
+                            check-state: CheckState.unchecked;
+                        }
+                        MaterialText {
+                            text: " 选项 B";
+                            style: MaterialTypography.body_medium;
+                            color: MaterialPalette.on_surface;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    HorizontalLayout {
+                        alignment: center;
+
+                        RadioButton { checked: true; }
+                        MaterialText {
+                            text: " 单选";
+                            style: MaterialTypography.body_medium;
+                            color: MaterialPalette.on_surface;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+
+                HorizontalDivider {}
+
+                // 主题切换开关
+                HorizontalLayout {
+                    spacing: MaterialStyleMetrics.spacing_8;
+                    alignment: center;
+
+                    MaterialText {
+                        text: "深色模式";
+                        style: MaterialTypography.body_large;
+                        color: MaterialPalette.on_surface;
+                        vertical-alignment: center;
+                    }
+
+                    Switch {
+                        checked: root.dark-mode;
+                        max-height: 40px;
+                        max-width: 70px;
+                        checked-state-changed(checked) => {
+                            root.dark-mode = checked;
+                        }
+                    }
+                }
+
+                MaterialText {
+                    text: "当前模式: " + (root.dark-mode ? "深色" : "浅色") + " — 所有组件颜色来自 MaterialPalette 全局属性, 自动跟随";
+                    style: MaterialTypography.body_small;
+                    color: MaterialPalette.on_surface_variant;
+                    wrap: word-wrap;
+                }
+            }
+        }
+
+        // --- Tab 1: 输入组件 ---
+        if root.current-tab == 1: ScrollView {
+            vertical_scrollbar_policy: ScrollBarPolicy.as_needed;
+
+            VerticalLayout {
+                padding: MaterialStyleMetrics.padding_16;
+                spacing: MaterialStyleMetrics.spacing_12;
+                alignment: start;
+
+                MaterialText {
+                    text: "文本输入框";
+                    style: MaterialTypography.title_medium;
+                    color: MaterialPalette.primary;
+                }
+
+                TextField {
+                    label: "用户名";
+                    text <=> root.username;
+                    placeholder-text: "请输入用户名";
+                    min-height: 48px;
+                    max-height: 48px;
+                }
+
+                TextField {
+                    label: "搜索";
+                    placeholder-text: "搜索内容...";
+                    leading-icon: Icons.menu;
+                    min-height: 48px;
+                    max-height: 48px;
+                }
+
+                HorizontalDivider {}
+
+                MaterialText {
+                    text: "带图标按钮";
+                    style: MaterialTypography.title_medium;
+                    color: MaterialPalette.primary;
+                }
+
+                HorizontalLayout {
+                    spacing: MaterialStyleMetrics.spacing_8;
+                    alignment: center;
+
+                    IconButton {
+                        icon: Icons.menu;
+                        max-height: 40px;
+                        clicked => {
+                            root.status-text = "Menu 图标按钮";
+                        }
+                    }
+
+                    IconButton {
+                        icon: Icons.edit;
+                        max-height: 40px;
+                        clicked => {
+                            root.status-text = "Edit 图标按钮";
+                        }
+                    }
+
+                    FilledIconButton {
+                        icon: Icons.check;
+                        max-height: 40px;
+                        clicked => {
+                            root.snackbar-text = "FilledIconButton 点击";
+                            root.snackbar-visible = true;
+                        }
+                    }
+                }
+
+                HorizontalDivider {}
+
+                MaterialText {
+                    text: "列表项 (ListTile)";
+                    style: MaterialTypography.title_medium;
+                    color: MaterialPalette.primary;
+                }
+
+                ListTile {
+                    text: "第一项 — FilledButton 实心按钮";
+                    min-height: 48px;
+                    max-height: 48px;
+                }
+
+                ListTile {
+                    text: "第二项 — ElevatedCard 浮起卡片";
+                    min-height: 48px;
+                    max-height: 48px;
+                }
+
+                ListTile {
+                    text: "第三项 — NavigationDrawer 导航抽屉";
+                    min-height: 48px;
+                    max-height: 48px;
+                }
+            }
+        }
+
+        // --- Tab 2: 设置页 ---
+        if root.current-tab == 2: ScrollView {
+            vertical_scrollbar_policy: ScrollBarPolicy.as_needed;
+
+            VerticalLayout {
+                padding: MaterialStyleMetrics.padding_16;
+                spacing: MaterialStyleMetrics.spacing_12;
+                alignment: start;
+
+                // 用户信息卡片
+                ElevatedCard {
+                    VerticalLayout {
+                        padding: MaterialStyleMetrics.padding_16;
+                        spacing: MaterialStyleMetrics.spacing_12;
+
+                        MaterialText {
+                            text: "个人设置";
+                            style: MaterialTypography.title_large;
+                            color: MaterialPalette.on_surface;
+                        }
+
+                        HorizontalDivider {}
+
+                        ListTile {
+                            text: "用户名";
+                            min-height: 56px;
+
+                            TextField {
+                                text <=> root.username;
+                                placeholder-text: "请输入";
+                                min-height: 48px;
+                                max-height: 48px;
+                            }
+                        }
+
+                        HorizontalDivider {}
+
+                        ListTile {
+                            text: "深色模式";
+                            min-height: 56px;
+
+                            Switch {
+                                checked <=> root.dark-mode;
+                                max-height: 40px;
+                                max-width: 70px;
+                                checked-state-changed(checked) => {
+                                    root.dark-mode = checked;
+                                }
+                            }
+                        }
+
+                        HorizontalDivider {}
+
+                        ListTile {
+                            text: "推送通知";
+                            min-height: 56px;
+
+                            Switch {
+                                checked: root.notifications;
+                                max-height: 40px;
+                                max-width: 70px;
+                                checked-state-changed(checked) => {
+                                    root.notifications = checked;
+                                    root.status-text = root.notifications ? "通知已开启" : "通知已关闭";
+                                }
+                            }
+                        }
+
+                        HorizontalDivider {}
+
+                        // 主题配色选择
+                        MaterialText {
+                            text: "主题配色";
+                            style: MaterialTypography.title_medium;
+                            color: MaterialPalette.primary;
+                        }
+
+                        for name[index] in ThemeSwitcher.theme-names: ListTile {
+                            text: name;
+                            min-height: 48px;
+                            max-height: 48px;
+
+                            RadioButton {
+                                checked: index == ThemeSwitcher.current;
+                                enabled: false;
+                                max-height: 24px;
+                                max-width: 24px;
+                            }
+
+                            clicked => {
+                                ThemeSwitcher.set-theme(index);
+                                root.status-text = "已切换主题: " + name;
+                            }
+                        }
+                    }
+                }
+
+                HorizontalDivider {}
+
+                // 保存按钮
+                FilledButton {
+                    text: "保存设置";
+                    max-height: 40px;
+                    clicked => {
+                        root.save-settings();
+                        root.snackbar-text = "设置已保存 (模拟)";
+                        root.snackbar-visible = true;
+                    }
+                }
+
+                MaterialText {
+                    text: "提示: 所有 Material 组件的颜色均来自 MaterialPalette 全局属性, 切换深色模式后全部自动跟随, 无需逐一修改.";
+                    style: MaterialTypography.body_small;
+                    color: MaterialPalette.on_surface_variant;
+                    wrap: word-wrap;
+                }
+            }
+        }
+
+        // ===== 底部状态栏 =====
+        Rectangle {
+            height: 36px;
+            background: MaterialPalette.surface_container;
+
+            Text {
+                text: root.status-text;
+                font-size: 12px;
+                color: MaterialPalette.on_surface_variant;
+                y: 10px;
+                x: 12px;
+            }
+        }
+    }
+
+    // ===== SnackBar 提示 =====
+    SnackBar {
+        visible: root.snackbar-visible;
+        text: root.snackbar-text;
+        action-text: "关闭";
+        action-clicked => {
+            root.snackbar-visible = false;
+        }
+    }
+}

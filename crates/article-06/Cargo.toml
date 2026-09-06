@@ -1,0 +1,63 @@
+[package]
+name = "article-06"
+version = "0.1.0"
+edition = "2024"
+authors = ["yehun"]
+description = "第六幕: 基于Slint官方Material建立Android主题体系 — Material Design 3 组件库集成"
+build = "build.rs"
+
+[dependencies]
+slint = { workspace = true }
+include_dir = "0.7.4"
+css-color-parser2 = "1.0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[build-dependencies]
+slint-build = { workspace = true }
+
+[features]
+default = ["desktop"]
+desktop = []
+android = ["slint/backend-android-activity-06"]
+
+[lib]
+path = "src/lib.rs"
+crate-type = ["cdylib", "lib"]
+
+[[bin]]
+path = "src/main.rs"
+name = "article-06"
+
+[package.metadata.android]
+use_aapt2 = true
+use_gradle = true
+package = "com.example.article_06"
+build_targets = ["aarch64-linux-android"]
+min_sdk_version = 30
+target_sdk_version = 35
+compile_sdk_version = 35
+java_sources = "android/java"
+
+[package.metadata.android.application]
+label = "Article 06 - Material Theme"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.INTERNET"
+
+[[package.metadata.android.application.activity]]
+name = "com.example.article_06.MainActivity"
+orientation = "portrait"
+launch_mode = "singleTop"
+config_changes = "uiMode|screenSize|screenLayout|density|keyboard|keyboardHidden"
+exported = true
+resizeable_activity = false
+always_retain_task_state = true
+
+[[package.metadata.android.application.activity.intent_filter]]
+actions = ["android.intent.action.VIEW", "android.intent.action.MAIN"]
+categories = ["android.intent.category.DEFAULT", "android.intent.category.LAUNCHER"]
+
+[[package.metadata.android.application.activity.meta_data]]
+name = "android.app.lib_name"
+value = "article_06"
