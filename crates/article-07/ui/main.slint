@@ -1,0 +1,173 @@
+// 第七幕: SwipeGestureHandler / ScaleRotateGestureHandler / 触摸手势
+
+import { HomePage } from "page/home.slint";
+import { ImageViewerPage } from "page/image-viewer.slint";
+
+export component MainWindow inherits Window {
+    preferred-width: 460px;
+    preferred-height: 680px;
+    title: "第七幕: 手势控制 — 滑动切图 & 缩放旋转";
+    default-font-family: "MiSans";
+    default-font-size: 14px;
+    background: #1a73e8;  // 标题栏蓝色, 填充顶部安全区
+
+    // === Tab 系统 ===
+    in-out property <int> current-tab: 0;
+    in-out property <string> status-text: "← 左右滑动切换 Tab →";
+
+    // === 弹窗控制 ===
+    in-out property <bool> image-viewer-open: false;
+
+    // === 滑动指示器动画 ===
+    in-out property <float> swipe-indicator-opacity: 0.0;
+    in-out property <float> swipe-indicator-offset: 0.0;
+
+    VerticalLayout {
+        padding: 0px;
+        padding-top: root.safe-area-insets.top;  // 顶部安全区由 Window 蓝色背景填充
+        spacing: 0px;
+
+        // ===== 顶部标题栏 =====
+        Rectangle {
+            height: 56px;
+            background: #1a73e8;
+
+            Text {
+                text: "手势控制演示";
+                font-size: 18px;
+                font-weight: 700;
+                color: #ffffff;
+                y: 16px;
+                x: 16px;
+            }
+
+            // 滑动方向指示器
+            Rectangle {
+                x: (parent.width - self.width) / 2;
+                y: 8px;
+                width: 80px;
+                height: 40px;
+                background: transparent;
+                opacity: root.swipe-indicator-opacity;
+
+                Text {
+                    text: root.swipe-indicator-offset > 0 ? "→" : "←";
+                    font-size: 28px;
+                    color: #ffffff;
+                    x: root.swipe-indicator-offset * 1px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        // ===== Tab 栏 (可点击切换) =====
+        HorizontalLayout {
+            height: 44px;
+            spacing: 0px;
+
+            for name[index] in ["滑动 Tab", "缩放旋转"]: Rectangle {
+                background: root.current-tab == index ? #e3f2fd : #f5f5f5;
+
+                // 底部指示条
+                Rectangle {
+                    y: parent.height - 2px;
+                    height: 2px;
+                    width: root.current-tab == index ? parent.width : 0px;
+                    background: #1a73e8;
+                }
+
+                TouchArea {
+                    clicked => {
+                        root.current-tab = index;
+                        root.status-text = "切换到: " + name;
+                    }
+                }
+
+                Text {
+                    text: name;
+                    font-size: 14px;
+                    font-weight: root.current-tab == index ? 600 : 400;
+                    color: root.current-tab == index ? #1a73e8 : #666;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        // ===== 内容区 (手势区域) =====
+        // SwipeGestureHandler 始终覆盖整个内容区, 支持左右双向滑动
+        // 弹窗打开时禁用, 避免拦截弹窗内的手势
+        SwipeGestureHandler {
+            enabled: !root.image-viewer-open;
+            handle-swipe-left: true;
+            handle-swipe-right: true;
+            handle-swipe-up: false;
+            handle-swipe-down: false;
+
+            moved => {
+                let dx = (self.current_position.x - self.pressed_position.x) / 1px;
+                root.swipe-indicator-offset = dx * 0.3;
+                root.swipe-indicator-opacity = 0.8;
+            }
+
+            swiped => {
+                let dx = (self.current_position.x - self.pressed_position.x) / 1px;
+                root.swipe-indicator-opacity = 0;
+
+                if (dx < -30 && root.current-tab < 1) {
+                    root.current-tab += 1;
+                    root.status-text = "← 左滑切换到: 缩放旋转";
+                } else if (dx > 30 && root.current-tab > 0) {
+                    root.current-tab -= 1;
+                    root.status-text = "→ 右滑切换到: 滑动 Tab";
+                }
+            }
+
+            cancelled => {
+                root.swipe-indicator-opacity = 0;
+            }
+
+            // ---- Tab 0: 滑动演示 ----
+            if root.current-tab == 0: HomePage {
+
+            }
+
+            // ---- Tab 1: 入口页 (点击打开弹窗) ----
+            if root.current-tab == 1: ImageViewerPage {
+                image-viewer-open <=> root.image-viewer-open;
+                safe-area-top: root.safe-area-insets.top;
+                safe-area-bottom: root.safe-area-insets.bottom;
+                safe-area-left: root.safe-area-insets.left;
+                safe-area-right: root.safe-area-insets.right;
+                update-status-text(text) => {
+                    root.status-text = text;
+                }
+            }
+        }
+
+        // ===== 底部状态栏 (灰色延伸到底部安全区) =====
+        Rectangle {
+            height: 36px + root.safe-area-insets.bottom;
+            background: #f5f5f5;
+
+            Text {
+                text: root.status-text;
+                font-size: 12px;
+                color: #555;
+                y: 10px;
+                x: 12px;
+            }
+
+            Text {
+                text: "Tab " + (root.current-tab + 1) + "/2";
+                font-size: 12px;
+                color: #999;
+                y: 10px;
+                x: parent.width - 60px;
+            }
+        }
+    }
+
+
+}

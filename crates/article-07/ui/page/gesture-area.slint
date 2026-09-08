@@ -1,0 +1,76 @@
+// 手势区域组件 — 单层变换架构
+// 所有变换合并: translate(pan) + rotate(base+gesture) * scale(base*gesture)
+// 旋转/缩放围绕图片中心, 位置稳定
+
+export component GestureArea inherits Rectangle {
+    // === 累积基准值 ===
+    in-out property <float> base-scale: 1.0;
+    in-out property <angle> base-rotation: 0deg;
+    in-out property <length> pan-x: 0px;
+    in-out property <length> pan-y: 0px;
+
+    // === 回调 ===
+    callback gesture-started();
+    callback gesture-updated(float, angle);
+    callback gesture-ended();
+    callback gesture-cancelled();
+    callback reset();
+
+    clip: true;
+    border-width: gesture.active ? 2px : 0px;
+    border-color: #e94560;
+
+    // 单指拖动 + 滚轮缩放
+    pan-detection := TouchArea {
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.up) {
+                root.pan-x += self.mouse-x - self.pressed-x;
+                root.pan-y += self.mouse-y - self.pressed-y;
+            }
+        }
+        scroll-event(event) => {
+            if (event.delta-y / 1px > 0) {
+                root.base-scale = min(5.0, root.base-scale + 0.1);
+            } else if (event.delta-y / 1px < 0) {
+                root.base-scale = max(0.3, root.base-scale - 0.1);
+            }
+            return accept;
+        }
+    }
+
+    // 双指缩放旋转
+    gesture := ScaleRotateGestureHandler {
+        started => { root.gesture-started(); }
+        updated => {
+            // 实时通知当前总变换值
+            root.gesture-updated(root.base-scale * gesture.scale, root.base-rotation + gesture.rotation);
+        }
+        ended => {
+            root.base-rotation += gesture.rotation;
+            root.base-scale *= gesture.scale;
+            if (root.base-scale > 5.0) { root.base-scale = 5.0; }
+            if (root.base-scale < 0.3) { root.base-scale = 0.3; }
+            root.gesture-ended();
+        }
+        cancelled => { root.gesture-cancelled(); }
+    }
+
+    // 重置变换
+    reset => {
+        root.base-scale = 1.0;
+        root.base-rotation = 0deg;
+        root.pan-x = 0px;
+        root.pan-y = 0px;
+    }
+
+    // 单层变换: 平移 + 旋转 + 缩放 (围绕图片中心)
+    Rectangle {
+        x: root.pan-x + (pan-detection.pressed ? pan-detection.mouse-x - pan-detection.pressed-x : 0px);
+        y: root.pan-y + (pan-detection.pressed ? pan-detection.mouse-y - pan-detection.pressed-y : 0px);
+        transform-rotation: root.base-rotation + gesture.rotation;
+        transform-scale: root.base-scale * gesture.scale;
+        transform-origin: { x: self.width / 2, y: self.height / 2 };
+
+        @children
+    }
+}

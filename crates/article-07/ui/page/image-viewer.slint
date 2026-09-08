@@ -1,0 +1,264 @@
+// 图片查看器弹窗页面
+import { Button, Slider, HorizontalBox, VerticalBox } from "std-widgets.slint";
+import { GestureArea } from "gesture-area.slint";
+
+export component ImageViewerPage inherits Rectangle {
+    // === 安全区域 (从 Window 传入) ===
+    in property <length> safe-area-top: 0px;
+    in property <length> safe-area-bottom: 0px;
+    in property <length> safe-area-left: 0px;
+    in property <length> safe-area-right: 0px;
+
+    // === 弹窗控制 ===
+    in-out property <bool> image-viewer-open: false;
+
+    // === 图片变换状态 ===
+    in-out property <float> image-scale: 1.0;
+    in-out property <float> image-rotation: 0.0;
+    in-out property <float> base-scale: 1.0;
+    in-out property <angle> base-rotation: 0deg;
+    in-out property <length> pan-offset-x: 0px;
+    in-out property <length> pan-offset-y: 0px;
+
+    callback update-status-text(string);
+    callback reset-transform();
+
+    reset-transform() => {
+        root.image-scale = 1.0;
+        root.image-rotation = 0.0;
+        root.base-scale = 1.0;
+        root.base-rotation = 0deg;
+        root.pan-offset-x = 0px;
+        root.pan-offset-y = 0px;
+    }
+
+    background: #263238;
+
+    VerticalBox {
+        padding: 24px;
+        padding-top: 40px;
+        spacing: 20px;
+        alignment: center;
+
+        HorizontalBox {
+            alignment: center;
+            Rectangle {
+                width: 200px;
+                height: 200px;
+                background: @linear-gradient(135deg, #667eea, #764ba2);
+                border-radius: 12px;
+
+                Text {
+                    text: "🖼️";
+                    font-size: 64px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    y: (parent.height - self.height) / 2;
+                }
+            }
+        }
+
+        Text {
+            text: "图片手势查看器";
+            font-size: 20px;
+            font-weight: 700;
+            color: #ffffff;
+            horizontal-alignment: center;
+        }
+
+        Text {
+            text: "双指捏合缩放 / 旋转\n单指拖动平移 / 滚轮缩放";
+            font-size: 13px;
+            color: #aaa;
+            horizontal-alignment: center;
+        }
+
+        Button {
+            text: "打开图片查看器";
+            clicked => {
+                root.image-viewer-open = true;
+                root.update-status-text("弹窗已打开");
+            }
+        }
+
+        HorizontalBox {
+            alignment: center;
+            Rectangle {
+                width: 300px;
+                background: rgba(255, 255, 255, 0.1);
+                border-radius: 8px;
+
+                VerticalBox {
+                    padding: 12px;
+                    spacing: 6px;
+
+                    Text {
+                        text: "为什么用弹窗?";
+                        font-size: 13px;
+                        font-weight: 600;
+                        color: #ffffff;
+                        horizontal-alignment: center;
+                    }
+                    Text {
+                        text: "SwipeGestureHandler 和\nScaleRotateGestureHandler\n不能共存于同一触摸区域";
+                        font-size: 11px;
+                        color: #aaa;
+                        horizontal-alignment: center;
+                    }
+                }
+            }
+        }
+    }
+
+    // ================================================================
+    // 图片查看器弹窗
+    // ================================================================
+    if root.image-viewer-open: Rectangle {
+        background: rgba(0, 0, 0, 0.85);
+        TouchArea {
+            clicked => {
+                root.image-viewer-open = false;
+                root.update-status-text("弹窗已关闭");
+            }
+        }
+
+        // 弹窗内容 (安全区域适配)
+        Rectangle {
+            x: root.safe-area-left + 16px;
+            y: root.safe-area-top + 16px;
+            width: root.width - root.safe-area-left - root.safe-area-right - 32px;
+            height: root.height - root.safe-area-top - root.safe-area-bottom - 32px;
+            background: #1a1a2e;
+            border-radius: 16px;
+
+            TouchArea { }
+
+            VerticalBox {
+                padding: 0px;
+                spacing: 0px;
+
+                // 标题栏
+                Rectangle {
+                    height: 48px;
+                    background: #16213e;
+                    border-radius: 16px;
+                    border-bottom-left-radius: 0px;
+                    border-bottom-right-radius: 0px;
+
+                    Text {
+                        text: "图片查看器 — ScaleRotateGestureHandler";
+                        font-size: 14px;
+                        font-weight: 600;
+                        color: #ffffff;
+                        y: 14px;
+                        x: 16px;
+                    }
+
+                    Rectangle {
+                        x: parent.width - 40px;
+                        y: 8px;
+                        width: 32px;
+                        height: 32px;
+                        background: #e94560;
+                        border-radius: 16px;
+
+                        TouchArea {
+                            clicked => {
+                                root.image-viewer-open = false;
+                                root.update-status-text("弹窗已关闭");
+                            }
+                        }
+
+                        Text {
+                            text: "✕";
+                            font-size: 14px;
+                            color: #ffffff;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+
+                // 手势区域 (使用独立 GestureArea 组件)
+                gesture-area := GestureArea {
+                    base-scale: root.base-scale;
+                    base-rotation: root.base-rotation;
+                    pan-x: root.pan-offset-x;
+                    pan-y: root.pan-offset-y;
+
+                    gesture-started => {
+                        root.update-status-text("手势中...");
+                    }
+                    gesture-updated(scale, rotation) => {
+                        root.image-scale = scale;
+                        root.image-rotation = rotation / 1deg;
+                    }
+                    gesture-ended => {
+                        root.base-scale = gesture-area.base-scale;
+                        root.base-rotation = gesture-area.base-rotation;
+                        root.pan-offset-x = gesture-area.pan-x;
+                        root.pan-offset-y = gesture-area.pan-y;
+                        root.image-scale = gesture-area.base-scale;
+                        root.image-rotation = gesture-area.base-rotation / 1deg;
+                        root.update-status-text("手势结束");
+                    }
+                    gesture-cancelled => {
+                        root.update-status-text("手势取消");
+                    }
+
+                    // 图片内容
+                    Text {
+                        text: "🎨";
+                        font-size: 96px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+
+                // 底部控制栏
+                Rectangle {
+                    height: 56px;
+                    background: #16213e;
+
+                    HorizontalBox {
+                        padding: 8px;
+                        spacing: 8px;
+                        alignment: center;
+
+                        Text { text: "缩放"; font-size: 11px; color: #aaa; width: 28px; }
+                        Slider {
+                            minimum: 30;
+                            maximum: 500;
+                            value: root.image-scale * 100;
+                            changed(val) => {
+                                root.image-scale = val / 100.0;
+                                root.base-scale = root.image-scale;
+                            }
+                        }
+                        Text { text: round(root.image-scale * 100) + "%"; font-size: 11px; color: #aaa; width: 36px; }
+
+                        Text { text: "旋转"; font-size: 11px; color: #aaa; width: 28px; }
+                        Slider {
+                            minimum: -180;
+                            maximum: 180;
+                            value: root.image-rotation;
+                            changed(val) => {
+                                root.image-rotation = val;
+                                root.base-rotation = val * 1deg;
+                            }
+                        }
+                        Text { text: round(root.image-rotation) + "°"; font-size: 11px; color: #aaa; width: 36px; }
+
+                        Button {
+                            text: "重置";
+                            clicked => {
+                                root.reset-transform();
+                                gesture-area.reset();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
