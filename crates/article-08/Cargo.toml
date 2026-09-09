@@ -1,0 +1,25 @@
+[package]
+name = "article-08"
+version = "0.1.0"
+edition = "2024"
+authors = ["yehun"]
+description = "第八幕: SystemTrayIcon / 系统托盘图标 — 添加图标/菜单/闪烁效果, 打造常驻后台的跨平台桌面应用"
+build = "build.rs"
+
+[dependencies]
+slint = { workspace = true, features = ["system-tray"] }
+
+[build-dependencies]
+slint-build = { workspace = true }
+
+[features]
+default = ["desktop"]
+desktop = []
+
+[lib]
+path = "src/lib.rs"
+crate-type = ["cdylib", "lib"]
+
+[[bin]]
+path = "src/main.rs"
+name = "article-08"

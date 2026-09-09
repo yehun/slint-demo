@@ -1,0 +1,52 @@
+// 第八幕: SystemTrayIcon — 托盘图标组件 (含消息闪烁效果)
+//
+// 规则:
+// 1. SystemTrayIcon 必须是导出组件的根元素 (不能作为 Window 的子元素)
+// 2. 只能包含 Menu 子元素 (不能放 Rectangle, Text 等可视元素)
+// 3. 几何属性 (x, y, width, height) 无效 — 操作系统决定托盘图标位置
+
+export component TrayIcon inherits SystemTrayIcon {
+    // 图标资源 (根据闪烁状态切换)
+    icon: root.flashing && root.flash-state
+        ? @image-url("../../../assets/icons/tray-notification.png")
+        : @image-url("../../../assets/icons/tray-light.png");
+
+    // 托盘图标的标题 (macOS 上显示在图标旁边, 其他平台用于辅助功能/溢出名称)
+    title: "Slint Tray Demo";
+
+    // 鼠标悬停提示文本 (全平台生效)
+    tooltip: root.flashing
+        ? "🔔 有新消息! 点击查看"
+        : "Slint 托盘图标演示 — 点击显示/隐藏窗口";
+
+    // 图标可见性 (默认显示)
+    visible: true;
+
+    // ===== 闪烁状态 =====
+    // 是否正在闪烁 (由 Rust 代码通过 set_flashing 控制)
+    in-out property <bool> flashing: false;
+    // 闪烁相位 (true=通知图标, false=正常图标, 由 Timer 切换)
+    in-out property <bool> flash-state: false;
+
+    // 回调: 左键点击图标 (当没有菜单或平台不自动弹出菜单时触发)
+    clicked => { toggle-window(); }
+
+    // 回调: 切换窗口显示/隐藏
+    callback toggle-window();
+
+    // 回调: 退出应用
+    callback quit();
+
+    // 右键菜单
+    Menu {
+        MenuItem {
+            title: "显示 / 隐藏窗口";
+            activated => { toggle-window(); }
+        }
+        MenuSeparator {}
+        MenuItem {
+            title: "退出";
+            activated => { quit(); }
+        }
+    }
+}

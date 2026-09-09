@@ -1,0 +1,95 @@
+// 第八幕: SystemTrayIcon — 主窗口 (含消息闪烁演示)
+// 演示: 窗口隐藏到托盘, 模拟来消息时托盘图标闪烁, 点击恢复停止闪烁
+import { Button, VerticalBox, HorizontalBox, GroupBox } from "std-widgets.slint";
+
+export component MainWindow inherits Window {
+    title: "Slint 托盘图标演示";
+    preferred-width: 520px;
+    preferred-height: 400px;
+
+    // 状态: 当前是否在托盘中 (窗口隐藏时)
+    in-out property <bool> in-tray: false;
+
+    // 状态: 是否有未读消息 (控制闪烁)
+    in-out property <bool> has-unread: false;
+
+    // 状态: 操作日志
+    in-out property <string> log-text: "等待操作...";
+
+    // 回调: 隐藏到托盘
+    callback hide-to-tray();
+
+    // 回调: 退出应用
+    callback quit();
+
+    // 回调: 模拟来消息 (触发闪烁)
+    callback simulate-message();
+
+    // 回调: 取消闪烁 (不恢复窗口, 仅停止闪烁)
+    callback stop-flash();
+
+    VerticalBox {
+        padding: 24px;
+        spacing: 16px;
+
+        // 标题
+        Text {
+            text: "Slint SystemTrayIcon 演示";
+            font-size: 22px;
+            font-weight: 700;
+        }
+
+        Text {
+            text: "点击下方按钮隐藏窗口到系统托盘, 然后模拟来消息触发闪烁效果.";
+            wrap: word-wrap;
+        }
+
+        // 未读消息状态
+        GroupBox {
+            title: "消息状态";
+            HorizontalBox {
+                spacing: 12px;
+                Text {
+                    text: root.has-unread ? "🔴 有未读消息" : "🟢 无未read消息";
+                    color: root.has-unread ? #ff5722 : #4caf50;
+                    font-weight: root.has-unread ? 700 : 400;
+                }
+            }
+        }
+
+        // 操作日志
+        GroupBox {
+            title: "操作日志";
+            VerticalBox {
+                Text {
+                    text: root.log-text;
+                    color: #1a73e8;
+                }
+            }
+        }
+
+        // 操作按钮
+        HorizontalBox {
+            spacing: 12px;
+            alignment: end;
+
+            Button {
+                text: "模拟来消息";
+                clicked => { root.simulate-message(); }
+            }
+            Button {
+                text: "取消闪烁";
+                enabled: root.has-unread;
+                clicked => { root.stop-flash(); }
+            }
+            Button {
+                text: "隐藏到托盘";
+                clicked => { root.hide-to-tray(); }
+            }
+            Button {
+                text: "退出";
+                clicked => { root.quit(); }
+            }
+        }
+    }
+}
