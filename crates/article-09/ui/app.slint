@@ -1,0 +1,132 @@
+import "../../../assets/fonts/MiSans-Normal.ttf";
+import { Button, VerticalBox, HorizontalBox } from "std-widgets.slint";
+
+export global CameraModel {
+    in property <image> image;
+    in property <bool> opened: false;
+    in property <bool> open-state: true;
+    in property <bool> can-switch: false;
+
+    callback open-camera();
+    callback close-camera();
+    callback switch-camera();
+}
+
+export component MainWindow inherits Window {
+    preferred-width: 640px;
+    preferred-height: 512px;
+    title: "摄像头预览 — 第九幕";
+    default-font-family: "MiSans";
+    background: #f5f5f5;
+
+    property <length> safe-top: root.safe-area-insets.top;
+    property <length> safe-bottom: root.safe-area-insets.bottom;
+
+    Rectangle {
+        background: #f5f5f5;
+    }
+
+    VerticalBox {
+        Rectangle {
+            height: root.safe-area-insets.top;
+            background: #ffffff;
+        }
+
+        Rectangle {
+            vertical-stretch: 1;
+            background: #1a1a1a;
+            border-radius: 12px;
+
+            Image {
+                source: CameraModel.image;
+                image-rendering: pixelated;
+                image-fit: contain;
+                width: 100%;
+                height: 100%;
+            }
+
+            if !CameraModel.opened: Rectangle {
+                background: #f0f0f0;
+                border-radius: 12px;
+                VerticalBox {
+                    alignment: center;
+                    spacing: 16px;
+                    Text {
+                        text: "📷";
+                        font-size: 48px;
+                        color: #cccccc;
+                        horizontal-alignment: center;
+                    }
+                    Text {
+                        text: "点击下方按钮打开摄像头";
+                        color: #999999;
+                        font-size: 14px;
+                        horizontal-alignment: center;
+                    }
+                }
+            }
+
+            Rectangle {
+                x: self.width - 96px;
+                y: 8px;
+                width: 88px;
+                height: 28px;
+                background: rgba(255, 255, 255, 0.9);
+                border-radius: 14px;
+                border-width: 1px;
+                border-color: rgba(0, 0, 0, 0.08);
+
+                HorizontalBox {
+                    padding-left: 8px;
+                    padding-right: 8px;
+                    alignment: LayoutAlignment.center;
+                    spacing: 4px;
+                    Rectangle {
+                        width: 8px;
+                        height: 8px;
+                        border-radius: 4px;
+                        background: CameraModel.opened ? #4caf50 : #bdbdbd;
+                    }
+                    Text {
+                        text: CameraModel.opened ? "预览中" : "已停止";
+                        color: #333333;
+                        font-size: 11px;
+                    }
+                }
+            }
+        }
+
+        Rectangle {
+            height: 56px;
+            background: #ffffff;
+
+            HorizontalBox {
+                alignment: LayoutAlignment.center;
+                spacing: 12px;
+
+                Button {
+                    text: CameraModel.opened ? "关闭" : "打开";
+                    enabled: CameraModel.open-state;
+                    clicked => {
+                        if (CameraModel.opened) {
+                            CameraModel.close-camera();
+                        } else {
+                            CameraModel.open-camera();
+                        }
+                    }
+                }
+
+                if CameraModel.can-switch: Button {
+                    text: "切换";
+                    enabled: CameraModel.opened;
+                    clicked => { CameraModel.switch-camera(); }
+                }
+            }
+        }
+
+        Rectangle {
+            height: root.safe-area-insets.bottom;
+            background: #ffffff;
+        }
+    }
+}

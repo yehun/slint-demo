@@ -1,0 +1,78 @@
+[package]
+name = "article-09"
+version = "0.1.0"
+edition = "2024"
+authors = ["yehun"]
+description = "第九幕: Slint 读取摄像头 —— 通过 v4l2 捕获视频帧, 在 Slint 界面中实现实时摄像头预览"
+build = "build.rs"
+
+[dependencies]
+slint = { workspace = true }
+log = "0.4"
+anyhow = "1"
+parking_lot = "0.12"
+
+[target.'cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))'.dependencies]
+nokhwa = { version = "0.10", features = ["input-native"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = { workspace = true }
+
+[build-dependencies]
+slint-build = { workspace = true }
+
+[features]
+default = ["desktop"]
+desktop = []
+android = ["slint/backend-android-activity-06"]
+
+# 注意: desktop 和 android 不能同时启用
+# Android 构建: cargo apk2 build --no-default-features --features android
+# Desktop 构建: cargo build --features desktop (或默认)
+
+[lib]
+path = "src/lib.rs"
+crate-type = ["cdylib", "lib"]
+
+[[bin]]
+path = "src/main.rs"
+name = "article_09"
+
+# ===== Android 构建配置 =====
+[package.metadata.android]
+use_aapt2 = true
+use_gradle = true
+package = "com.example.article09"
+build_targets = ["aarch64-linux-android"]
+min_sdk_version = 30
+target_sdk_version = 35
+compile_sdk_version = 35
+java_sources = "android/java"
+
+[package.metadata.android.application]
+label = "Article 09 - Camera Preview"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.CAMERA"
+
+[[package.metadata.android.application.activity]]
+name = "com.example.article09.MainActivity"
+orientation = "portrait"
+launch_mode = "singleTop"
+config_changes = "uiMode|screenSize|screenLayout|density|keyboard|keyboardHidden"
+exported = true
+resizeable_activity = false
+always_retain_task_state = true
+
+[[package.metadata.android.application.activity.intent_filter]]
+actions = ["android.intent.action.VIEW", "android.intent.action.MAIN"]
+categories = ["android.intent.category.DEFAULT", "android.intent.category.LAUNCHER"]
+
+[[package.metadata.android.application.activity.meta_data]]
+name = "android.app.lib_name"
+value = "article_09"
+
+# Release 签名 (使用 debug keystore 用于测试)
+[package.metadata.android.signing.release]
+path = "../../assets/keystore/debug.keystore"
+keystore_password = "android"
