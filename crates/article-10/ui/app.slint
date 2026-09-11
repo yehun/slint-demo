@@ -1,0 +1,134 @@
+// 第十幕: Slint 剪贴板读写
+// UI — 文本输入框 + 复制/粘贴/清空按钮 + 状态栏
+import "../../../assets/fonts/MiSans-Normal.ttf";
+import { VerticalBox, HorizontalBox, Button } from "std-widgets.slint";
+
+export global ClipboardModel {
+    in-out property <string> input-text: "";
+    in-out property <string> status: "就绪 — 在上方输入文字, 点击按钮操作剪贴板";
+
+    callback copy();
+    callback paste();
+    callback clear();
+}
+
+export component MainWindow inherits Window {
+    background: #f8f9fa;
+    preferred-width: 400px;
+    preferred-height: 340px;
+    title: "第十幕: 剪贴板读写";
+    default-font-family: "MiSans";
+
+    // 安全区适配 — Android 上避让状态栏和导航栏
+    property <length> safe-top: root.safe-area-insets.top;
+    property <length> safe-bottom: root.safe-area-insets.bottom;
+
+    VerticalBox {
+        padding: 16px;
+        spacing: 12px;
+
+        // --- 顶部安全区 ---
+        Rectangle {
+            height: root.safe-area-insets.top;
+            background: #f8f9fa;
+        }
+
+        // --- 标题 ---
+        Text {
+            text: "📋 Slint 剪贴板";
+            font-size: 20px;
+            font-weight: 700;
+            horizontal-alignment: center;
+        }
+
+        // --- 输入框 ---
+        Rectangle {
+            background: #ffffff;
+            border-radius: 8px;
+            border-color: #dee2e6;
+            border-width: 1px;
+            // height: 100px;
+
+            TextInput {
+                x: 8px;
+                y: 8px;
+                width: parent.width - 16px;
+                // height: parent.height - 16px;
+                text <=> ClipboardModel.input-text;
+                wrap: word-wrap;
+                accepted => {
+                    ClipboardModel.input-text = self.text;
+                }
+            }
+
+            // Placeholder
+            if ClipboardModel.input-text == "": Text {
+                x: 12px;
+                y: 12px;
+                text: "在这里输入文字, 或从剪贴板粘贴...";
+                color: #adb5bd;
+                font-size: 13px;
+            }
+        }
+
+        // --- 按钮行 ---
+        HorizontalBox {
+            height: 40px;
+            spacing: 8px;
+            alignment: LayoutAlignment.center;
+
+            Button {
+                text: "📋 复制";
+                clicked => { ClipboardModel.copy(); }
+            }
+
+            Button {
+                text: "📥 粘贴";
+                clicked => { ClipboardModel.paste(); }
+            }
+
+            Button {
+                text: "🗑 清空";
+                clicked => { ClipboardModel.clear(); }
+            }
+        }
+
+        // --- 状态栏 ---
+        Rectangle {
+            background: #e9ecef;
+            border-radius: 6px;
+            height: 32px;
+
+            Text {
+                x: 8px;
+                y: 8px;
+                text: ClipboardModel.status;
+                color: #495057;
+                font-size: 12px;
+            }
+        }
+
+        // --- 提示 ---
+        Rectangle {
+            height: 50px;
+            background: #fff3cd;
+            border-radius: 6px;
+            border-color: #ffc107;
+            border-width: 1px;
+
+            Text {
+                x: 8px;
+                y: 8px;
+                text: "💡 桌面端: 使用 arboard 库\nAndroid: 通过 JNI 调用 ClipboardManager";
+                color: #664d03;
+                font-size: 11px;
+            }
+        }
+
+        // --- 底部安全区 ---
+        Rectangle {
+            height: root.safe-area-insets.bottom;
+            background: #f8f9fa;
+        }
+    }
+}
