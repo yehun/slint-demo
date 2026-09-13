@@ -1,0 +1,17 @@
+[package]
+name = "slint-file-picker"
+version = "0.1.0"
+edition = "2024"
+authors = ["yehun"]
+description = "跨平台文件选择器 —— desktop 原生对话框 (rfd) / Android SAF (ACTION_OPEN_DOCUMENT), 结果统一为 slint-fs 的 PlatformPath"
+
+[dependencies]
+log = "0.4"
+slint-fs = { path = "../slint-fs" }
+
+[target.'cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))'.dependencies]
+rfd = "0.15"
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = { workspace = true }
+ndk-context = "0.1.1"
