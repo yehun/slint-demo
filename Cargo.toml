@@ -1,6 +1,8 @@
 [workspace]
 members = [
     "crates/slint-common",
+    "crates/slint-fs",
+    "crates/slint-file-picker",
     "crates/article-02",
     "crates/article-03",
     "crates/article-04",
@@ -10,6 +12,7 @@ members = [
     "crates/article-08",
     "crates/article-09",
     "crates/article-10",
+    "crates/article-11",
 ]
 resolver = "2"
 

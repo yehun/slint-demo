@@ -1,0 +1,148 @@
+// 第十一幕: 文件选择与写入
+// UI — 文件路径条 + 多行编辑器 + 打开/保存按钮 + 状态栏
+import "../../../assets/fonts/MiSans-Normal.ttf";
+import { VerticalBox, HorizontalBox, Button, TextEdit } from "std-widgets.slint";
+
+export global EditorModel {
+    in-out property <string> editor-text: "";
+    in-out property <string> file-path: "未选择文件";
+    in-out property <string> status: "就绪 — 点击「打开」读取文件, 或在下方编辑后「保存」";
+
+    callback open-file();
+    callback save-file();
+}
+
+export component MainWindow inherits Window {
+    background: #f8f9fa;
+    preferred-width: 420px;
+    preferred-height: 480px;
+    title: "第十一幕: 文件选择与写入";
+    default-font-family: "MiSans";
+
+    // 安全区适配 — Android 上避让状态栏和导航栏
+    property <length> safe-top: root.safe-area-insets.top;
+    property <length> safe-bottom: root.safe-area-insets.bottom;
+
+    VerticalBox {
+        padding: 16px;
+        spacing: 12px;
+
+        // --- 顶部安全区 ---
+        Rectangle {
+            height: root.safe-area-insets.top;
+            background: #f8f9fa;
+        }
+
+        // --- 标题 ---
+        Text {
+            text: "📁 文件选择与写入";
+            font-size: 20px;
+            font-weight: 700;
+            horizontal-alignment: center;
+        }
+
+        // --- 当前文件路径条 ---
+        Rectangle {
+            background: #eef3ff;
+            border-radius: 6px;
+            border-color: #b8c9f0;
+            border-width: 1px;
+            height: 30px;
+
+            Text {
+                x: 8px;
+                y: 7px;
+                width: parent.width - 16px;
+                text: EditorModel.file-path;
+                color: #34558b;
+                font-size: 11px;
+                overflow: elide;
+            }
+        }
+
+        // --- 编辑器 (多行) ---
+        Rectangle {
+            background: #ffffff;
+            border-radius: 8px;
+            border-color: #dee2e6;
+            border-width: 1px;
+            vertical-stretch: 1;
+
+            TextEdit {
+                x: 8px;
+                y: 8px;
+                width: parent.width - 16px;
+                height: parent.height - 16px;
+                font-size: 13px;
+                wrap: word-wrap;
+                text <=> EditorModel.editor-text;
+            }
+
+            // Placeholder
+            if EditorModel.editor-text == "": Text {
+                x: 12px;
+                y: 12px;
+                text: "点击「打开文件」读取内容, 或直接在这里输入...";
+                color: #adb5bd;
+                font-size: 13px;
+            }
+        }
+
+        // --- 按钮行 ---
+        HorizontalBox {
+            height: 40px;
+            spacing: 8px;
+            alignment: LayoutAlignment.center;
+
+            Button {
+                text: "📂 打开文件";
+                clicked => { EditorModel.open-file(); }
+            }
+
+            Button {
+                text: "💾 保存写入";
+                clicked => { EditorModel.save-file(); }
+            }
+        }
+
+        // --- 状态栏 ---
+        Rectangle {
+            background: #e9ecef;
+            border-radius: 6px;
+            height: 32px;
+
+            Text {
+                x: 8px;
+                y: 8px;
+                width: parent.width - 16px;
+                text: EditorModel.status;
+                color: #495057;
+                font-size: 12px;
+                overflow: elide;
+            }
+        }
+
+        // --- 提示 ---
+        Rectangle {
+            height: 50px;
+            background: #fff3cd;
+            border-radius: 6px;
+            border-color: #ffc107;
+            border-width: 1px;
+
+            Text {
+                x: 8px;
+                y: 8px;
+                text: "💡 桌面端: rfd 原生对话框\nAndroid: SAF 系统选择器, 无需存储权限";
+                color: #664d03;
+                font-size: 11px;
+            }
+        }
+
+        // --- 底部安全区 ---
+        Rectangle {
+            height: root.safe-area-insets.bottom;
+            background: #f8f9fa;
+        }
+    }
+}

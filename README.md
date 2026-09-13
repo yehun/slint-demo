@@ -20,7 +20,10 @@ Slint 跨平台系列文章的 **配套 demo 仓库**.
 |---|---|---|---|
 | [crates/article-02](crates/article-02/) | 第二幕 | 地基与三端初始化 | ✅ 可运行 |
 | [crates/slint-common](crates/slint-common/) | — | 共享模板 (预留) | 📦 预留 |
+| [crates/slint-fs](crates/slint-fs/) | — | PlatformPath 统一路径抽象 (desktop 本地路径 / Android content URI 双模式) | ✅ 可用 |
+| [crates/slint-file-picker](crates/slint-file-picker/) | — | 跨平台文件选择器 (desktop rfd / Android SAF), 结果为 PlatformPath | ✅ 可用 |
 | `crates/article-03` | 第三幕 | Android JNI 桥 | 🚧 待写 |
+| `crates/article-11` | 第十一幕 | 文件选择与写入 (slint-file-picker + slint-fs) | ✅ 可运行 |
 
 ---
 
