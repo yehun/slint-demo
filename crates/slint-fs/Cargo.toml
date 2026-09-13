@@ -1,0 +1,16 @@
+[package]
+name = "slint-fs"
+version = "0.1.0"
+edition = "2024"
+authors = ["yehun"]
+description = "PlatformPath 统一路径抽象 —— desktop 本地路径 / Android content URI 双模式分发的跨平台文件读写公共模块"
+
+[dependencies]
+log = "0.4"
+thiserror = "2"
+mime-type = "0.2.0"
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = { workspace = true }
+ndk-context = "0.1.1"
+libc = "0.2"
