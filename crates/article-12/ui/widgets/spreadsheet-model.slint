@@ -1,0 +1,191 @@
+// 电子表格数据模型
+// 数据结构 (GridHeader/GridRow) + SpreadsheetModel global
+// 功能: 选择模型 + 列排序 + 列宽调整 + 文件加载
+
+export struct GridHeader {
+    title: string,
+    align: int,     // 0=左 1=中 2=右
+    sortable: bool, // 是否允许排序
+}
+
+export struct GridRow {
+    value: [string],
+}
+
+export global SpreadsheetModel {
+    // 数据
+    in-out property <[GridRow]> rows: [];
+    in property <[GridHeader]> headers: [];
+
+    // 列宽前缀: col-x[c]=c列左边界, col-x[col-count]=总宽; 由 Rust 计算注入
+    in-out property <[length]> col-x: [];
+    in-out property <length> col-width: 92px;  // 统一列宽回退
+    in-out property <length> min-col-width: 24px;
+
+    in-out property <length> row-height: 28px;
+    in-out property <length> col-header-height: 32px;
+    in-out property <length> row-header-width: 42px;
+
+    // 列头配置
+    public pure function header-title(c: int) -> string {
+        if (root.headers.length > c) { return root.headers[c].title; }
+        return "" + (c + 1);
+    }
+    public pure function header-align(c: int) -> int {
+        if (root.headers.length > c) { return root.headers[c].align; }
+        return 0;
+    }
+    pure function header-sortable(c: int) -> bool {
+        if (root.headers.length > c) { return root.headers[c].sortable; }
+        return true;
+    }
+
+    // 行/列计数
+    out property <int> row-count: root.rows.length;
+    out property <int> col-count: root.row-count > 0 ? root.rows[0].value.length : 0;
+
+    // 列宽计算
+    public pure function col-x-at(c: int) -> length {
+        if (root.col-x.length > c) { return root.col-x[c]; }
+        return c * root.col-width;
+    }
+    public pure function col-width-of(c: int) -> length {
+        if (root.col-x.length > c + 1) { return root.col-x[c + 1] - root.col-x[c]; }
+        return root.col-width;
+    }
+    public pure function total-w() -> length {
+        if (root.col-x.length > root.col-count) { return root.col-x[root.col-count]; }
+        return root.col-count * root.col-width;
+    }
+
+    // 越界安全的单元格取值
+    public pure function cell-text(r: int, c: int) -> string {
+        if (r < 0 || r >= root.row-count || c < 0 || c >= root.col-count) { return ""; }
+        return root.rows[r].value[c];
+    }
+
+    // ===== 排序 =====
+    in-out property <int> sort-col: -1;    // 当前排序列 (-1=无)
+    in-out property <int> sort-order: 0;   // 0=正常 1=正序 2=倒序
+    callback sort(int);                     // 排序回调 (列号)
+    callback single-click(int);             // 单击 (延时确认)
+    callback double-click(int);             // 双击 (立即执行)
+    callback copy();                        // 复制选区到剪贴板
+
+    // ===== 列宽调整 =====
+    callback resize-column(int, float);    // 调整列宽 (列号, 新宽度px)
+    callback auto-fit-column(int, float);  // 自适应列宽 (列号, 字号px)
+    callback auto-fit-selection();         // 自适应选中列宽
+    callback hit-col(float) -> int;        // 命中列 (像素偏移→列号, 支持变列宽)
+
+    // ===== 选择模型 =====
+    in-out property <int> sel-row0: 0;
+    in-out property <int> sel-col0: 0;
+    in-out property <int> sel-row1: 0;
+    in-out property <int> sel-col1: 0;
+    in-out property <int> current-row: 0;
+    in-out property <int> current-col: 0;
+    in-out property <int> anchor-row: 0;
+    in-out property <int> anchor-col: 0;
+    in-out property <int> sel-mode: 0;  // 0=普通 1=行选 2=列选 3=全选
+
+    callback selection-changed(int, int, int, int);
+    callback load-data();
+
+    // 按 sel-mode 归一的选中块
+    public pure function ordered-r0() -> int {
+        if (root.sel-mode == 2 || root.sel-mode == 3) { return 0; }
+        return min(root.anchor-row, root.current-row);
+    }
+    public pure function ordered-r1() -> int {
+        if (root.sel-mode == 2 || root.sel-mode == 3) { return max(0, root.row-count - 1); }
+        return max(root.anchor-row, root.current-row);
+    }
+    public pure function ordered-c0() -> int {
+        if (root.sel-mode == 1 || root.sel-mode == 3) { return 0; }
+        return min(root.anchor-col, root.current-col);
+    }
+    public pure function ordered-c1() -> int {
+        if (root.sel-mode == 1 || root.sel-mode == 3) { return max(0, root.col-count - 1); }
+        return max(root.anchor-col, root.current-col);
+    }
+    public pure function row-in-sel(r: int) -> bool {
+        return r >= root.sel-row0 && r <= root.sel-row1;
+    }
+    public pure function col-in-sel(c: int) -> bool {
+        return c >= root.sel-col0 && c <= root.sel-col1;
+    }
+
+    // 归一写入 sel-*
+    public function commit() {
+        root.sel-row0 = root.ordered-r0();
+        root.sel-row1 = root.ordered-r1();
+        root.sel-col0 = root.ordered-c0();
+        root.sel-col1 = root.ordered-c1();
+        root.selection-changed(root.sel-row0, root.sel-col0, root.sel-row1, root.sel-col1);
+    }
+
+    // 区域选择方法
+    callback select-row(int);
+    callback select-block(int, int, int, int);
+    callback select-all();
+    callback clear-selection();
+
+    select-row(row) => {
+        if (root.row-count == 0) { return; }
+        let r = max(0, min(root.row-count - 1, row));
+        root.sel-row0 = r; root.sel-col0 = 0;
+        root.sel-row1 = r; root.sel-col1 = max(0, root.col-count - 1);
+        root.current-row = r; root.current-col = 0;
+        root.anchor-row = r; root.anchor-col = 0;
+        root.selection-changed(root.sel-row0, root.sel-col0, root.sel-row1, root.sel-col1);
+    }
+    select-block(r0, c0, r1, c1) => {
+        if (root.row-count == 0) { return; }
+        let row-limit = root.row-count - 1;
+        let col-limit = max(0, root.col-count - 1);
+        root.sel-row0 = max(0, min(row-limit, min(r0, r1)));
+        root.sel-col0 = max(0, min(col-limit, min(c0, c1)));
+        root.sel-row1 = max(0, min(row-limit, max(r0, r1)));
+        root.sel-col1 = max(0, min(col-limit, max(c0, c1)));
+        root.current-row = root.sel-row0; root.current-col = root.sel-col0;
+        root.anchor-row = root.sel-row0; root.anchor-col = root.sel-col0;
+        root.selection-changed(root.sel-row0, root.sel-col0, root.sel-row1, root.sel-col1);
+    }
+    select-all() => {
+        if (root.row-count == 0) { return; }
+        root.sel-row0 = 0; root.sel-col0 = 0;
+        root.sel-row1 = root.row-count - 1; root.sel-col1 = max(0, root.col-count - 1);
+        root.current-row = 0; root.current-col = 0;
+        root.anchor-row = 0; root.anchor-col = 0;
+        root.selection-changed(root.sel-row0, root.sel-col0, root.sel-row1, root.sel-col1);
+    }
+    clear-selection() => {
+        root.sel-row0 = 0; root.sel-col0 = 0;
+        root.sel-row1 = 0; root.sel-col1 = 0;
+        root.current-row = 0; root.current-col = 0;
+        root.anchor-row = 0; root.anchor-col = 0;
+        root.selection-changed(0, 0, 0, 0);
+    }
+
+    // 命中测试
+    public pure function hit-row(my: length) -> int {
+        if (root.row-count == 0) { return 0; }
+        return max(0, min(root.row-count - 1, floor(my / root.row-height)));
+    }
+
+    // 状态栏文本
+    in-out property <string> status: "就绪 — 单击选中单元格, Shift+点击选区域";
+
+    // 列头"单击排序 vs 拖拽选列"判定
+    in-out property <length> col-press-x: 0px;
+    in-out property <length> col-press-y: 0px;
+    in-out property <int> col-press-col: -1;
+    in-out property <bool> col-dragging: false;
+    in-out property <length> drag-threshold: 8px;
+
+    // 拖选状态
+    in-out property <bool> sel-dragging: false;
+    in-out property <length> drag-mx: 0px;
+    in-out property <length> drag-my: 0px;
+}

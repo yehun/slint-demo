@@ -1,0 +1,37 @@
+// 正文单元格组件 — Material 主题
+// 只读显示 + 网格线 + 可选斑马纹底色
+
+import { MaterialPalette } from "@material";
+
+export component GridCell inherits Rectangle {
+    in property <string> value: "";
+    in property <int> align: 0;   // 0=左 1=中 2=右
+    in property <bool> zebra: false;
+    in property <length> font-size: 14px;
+
+    clip: true;
+    background: root.zebra ? MaterialPalette.on-surface.with-alpha(4%) : transparent;
+
+    Text {
+        x: 4px;
+        y: 0px;
+        width: root.width - 8px;
+        height: root.height;
+        font-size: root.font-size;
+        vertical-alignment: center;
+        horizontal-alignment: root.align == 1 ? center : (root.align == 2 ? right : left);
+        overflow: elide;
+        color: MaterialPalette.on-surface;
+        text: root.value;
+    }
+
+    // 网格线
+    Rectangle {
+        x: root.width - 1px; y: 0px; width: 1px; height: root.height;
+        background: MaterialPalette.outline-variant;
+    }
+    Rectangle {
+        x: 0px; y: root.height - 1px; width: root.width; height: 1px;
+        background: MaterialPalette.outline-variant;
+    }
+}

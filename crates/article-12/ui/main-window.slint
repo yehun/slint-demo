@@ -1,0 +1,427 @@
+// 主窗口组件 — Material 主题
+// 工具栏 + 电子表格区域 (表头/行号/正文/滚动/虚拟化) + 状态栏
+
+import "../../../assets/fonts/MiSans-Normal.ttf";
+import { VerticalBox, HorizontalBox, Button, ScrollView } from "std-widgets.slint";
+import { MaterialPalette, MaterialStyleMetrics } from "@material";
+import { SpreadsheetModel, GridHeader, GridRow } from "widgets/spreadsheet-model.slint";
+import { GridCell } from "widgets/grid-cell.slint";
+
+export component MainWindow inherits Window {
+    background: MaterialPalette.background;
+    preferred-width: 700px;
+    preferred-height: 500px;
+    title: "第十二幕: Slint做自己的电子表格";
+    default-font-family: "MiSans";
+
+    // 列头右缘调宽手柄宽度
+    private property <length> col-resize-grip: 6px;
+
+
+    // 安全区适配
+    property <length> safe-top: root.safe-area-insets.top;
+    property <length> safe-bottom: root.safe-area-insets.bottom;
+
+    // 行虚拟化 (引用 body-scroll, 必须在 MainWindow 中定义)
+    property <length> scroll-y: -body-scroll.content-y;
+    property <length> view-h: body-scroll.visible-height;
+
+    pure function first-row() -> int {
+        if (SpreadsheetModel.row-count == 0) { return 0; }
+        return max(0, min(SpreadsheetModel.row-count - 1, floor(root.scroll-y / SpreadsheetModel.row-height)));
+    }
+    pure function last-row() -> int {
+        if (SpreadsheetModel.row-count == 0) { return 0; }
+        return max(root.first-row(), min(SpreadsheetModel.row-count - 1, ceil((root.scroll-y + root.view-h) / SpreadsheetModel.row-height) - 1));
+    }
+    property <int> visible-row-count: SpreadsheetModel.row-count > 0 ? root.last-row() - root.first-row() + 1 : 0;
+
+    VerticalBox {
+        padding: MaterialStyleMetrics.padding_12;
+        spacing: MaterialStyleMetrics.spacing_8;
+
+        // --- 顶部安全区 ---
+        Rectangle {
+            height: root.safe-area-insets.top;
+            background: MaterialPalette.background;
+        }
+
+        // --- 标题 ---
+        Text {
+            text: "Slint 电子表格 (Material 主题)";
+            font-size: 16px;
+            font-weight: 700;
+            color: MaterialPalette.on-background;
+            horizontal-alignment: center;
+        }
+
+        // --- 工具栏 ---
+        HorizontalBox {
+            height: 50px;
+            spacing: MaterialStyleMetrics.spacing_8;
+            alignment: LayoutAlignment.center;
+
+            Button {
+                text: "打开文件";
+                clicked => {
+                    SpreadsheetModel.status = "正在打开文件选择器...";
+                    SpreadsheetModel.load-data();
+                }
+            }
+
+            Button {
+                text: "加行";
+                clicked => {
+                    SpreadsheetModel.rows.push({ value: [] });
+                    SpreadsheetModel.status = "已添加一行 (共 " + SpreadsheetModel.row-count + " 行)";
+                }
+            }
+
+            Button {
+                text: "全选";
+                clicked => {
+                    SpreadsheetModel.select-all();
+                    SpreadsheetModel.status = "已全选";
+                }
+            }
+
+            Button {
+                text: "取消选择";
+                clicked => {
+                    SpreadsheetModel.clear-selection();
+                    SpreadsheetModel.status = "已取消选择";
+                }
+            }
+        }
+
+        // --- 电子表格区域 ---
+        Rectangle {
+            background: MaterialPalette.surface;
+            border-radius: 8px;
+            border-color: MaterialPalette.outline-variant;
+            border-width: 1px;
+            vertical-stretch: 1;
+
+            // ===== 左上角 (全选) =====
+            Rectangle {
+                x: 0px; y: 0px;
+                width: SpreadsheetModel.row-header-width;
+                height: SpreadsheetModel.col-header-height;
+                background: MaterialPalette.surface-container-highest;
+                z: 300;
+
+                TouchArea {
+                    clicked => {
+                        if (SpreadsheetModel.row-count > 0) {
+                            SpreadsheetModel.select-all();
+                        }
+                    }
+                }
+
+                Rectangle { x: SpreadsheetModel.row-header-width - 1px; y: 0px; width: 1px; height: 100%; background: MaterialPalette.outline; }
+                Rectangle { x: 0px; y: SpreadsheetModel.col-header-height - 1px; width: 100%; height: 1px; background: MaterialPalette.outline; }
+            }
+
+            // ===== 列头 (横向滚动 + 拖拽调宽 + 单击排序) =====
+            Rectangle {
+                x: SpreadsheetModel.row-header-width; y: 0px;
+                width: parent.width - SpreadsheetModel.row-header-width;
+                height: SpreadsheetModel.col-header-height;
+                z: 200;
+                clip: true;
+
+                Rectangle {
+                    x: body-scroll.content-x; y: 0px;
+                    width: SpreadsheetModel.total-w();
+                    height: SpreadsheetModel.col-header-height;
+
+                    // 列头格
+                    for c in SpreadsheetModel.col-count: Rectangle {
+                        x: SpreadsheetModel.col-x-at(c); y: 0px;
+                        width: SpreadsheetModel.col-width-of(c);
+                        height: SpreadsheetModel.col-header-height;
+                        background: SpreadsheetModel.col-in-sel(c) ? MaterialPalette.primary-container
+                            : (SpreadsheetModel.sort-col == c ? MaterialPalette.secondary-container : MaterialPalette.surface-container-highest);
+                        border-color: MaterialPalette.outline-variant;
+                        border-width: 1px;
+
+                        Text {
+                            x: 4px; y: 6px;
+                            width: parent.width - 8px;
+                            text: SpreadsheetModel.header-title(c) + (SpreadsheetModel.sort-col == c ? (SpreadsheetModel.sort-order == 1 ? " ▲" : " ▼") : "");
+                            font-size: 12px; font-weight: 700;
+                            color: MaterialPalette.on-surface-variant;
+                            horizontal-alignment: center;
+                            overflow: elide;
+                        }
+                    }
+
+                    // 列头交互: 单击排序 / 双击自适应 / 拖拽选整列
+                    TouchArea {
+                        width: SpreadsheetModel.total-w();
+                        height: SpreadsheetModel.col-header-height;
+                        clicked => {
+                            let c = c-from-x(self.mouse-x);
+                            if (c >= 0 && c < SpreadsheetModel.col-count) {
+                                SpreadsheetModel.single-click(c);
+                            }
+                        }
+                        double-clicked => {
+                            let c = c-from-x(self.mouse-x);
+                            if (c >= 0 && c < SpreadsheetModel.col-count) {
+                                SpreadsheetModel.double-click(c);
+                            }
+                        }
+                        pointer-event(pe) => {
+                            if (pe.kind == PointerEventKind.down && pe.button == PointerEventButton.left) {
+                                if (SpreadsheetModel.col-count == 0) { return; }
+                                SpreadsheetModel.col-press-x = self.mouse-x;
+                                SpreadsheetModel.col-press-y = self.mouse-y;
+                                SpreadsheetModel.col-press-col = c-from-x(self.mouse-x);
+                                SpreadsheetModel.col-dragging = false;
+                            } else if (pe.kind == PointerEventKind.move && SpreadsheetModel.col-press-col >= 0 && SpreadsheetModel.col-count > 0) {
+                                if (!SpreadsheetModel.col-dragging
+                                    && (Math.abs(self.mouse-x - SpreadsheetModel.col-press-x) > SpreadsheetModel.drag-threshold
+                                        || Math.abs(self.mouse-y - SpreadsheetModel.col-press-y) > SpreadsheetModel.drag-threshold)) {
+                                    SpreadsheetModel.col-dragging = true;
+                                }
+                                if (SpreadsheetModel.col-dragging) {
+                                    SpreadsheetModel.sel-mode = 2;
+                                    SpreadsheetModel.anchor-row = 0; SpreadsheetModel.current-row = 0;
+                                    SpreadsheetModel.anchor-col = SpreadsheetModel.col-press-col;
+                                    SpreadsheetModel.current-col = c-from-x(self.mouse-x);
+                                    SpreadsheetModel.commit();
+                                }
+                            } else if (pe.kind == PointerEventKind.up && pe.button == PointerEventButton.left) {
+                                SpreadsheetModel.col-press-col = -1;
+                                SpreadsheetModel.col-dragging = false;
+                            }
+                        }
+                    }
+
+                    // 列头右缘调宽手柄 (仅拖拽调宽)
+                    for c in SpreadsheetModel.col-count: TouchArea {
+                        z: 300;
+                        x: SpreadsheetModel.col-x-at(c) + SpreadsheetModel.col-width-of(c) - col-resize-grip;
+                        y: 0px;
+                        width: col-resize-grip;
+                        height: SpreadsheetModel.col-header-height;
+                        mouse-cursor: col-resize;
+
+                        moved => {
+                            if (self.pressed && SpreadsheetModel.col-count > 0) {
+                                let new-w = max(SpreadsheetModel.min-col-width, (self.x + self.mouse-x) - SpreadsheetModel.col-x-at(c));
+                                SpreadsheetModel.resize-column(c, new-w / 1px);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ===== 行号 (随 body 纵向滚动) =====
+            Rectangle {
+                x: 0px; y: SpreadsheetModel.col-header-height;
+                width: SpreadsheetModel.row-header-width;
+                height: parent.height - SpreadsheetModel.col-header-height;
+                z: 200;
+                clip: true;
+
+                Rectangle {
+                    x: 0px; y: body-scroll.content-y;
+                    width: SpreadsheetModel.row-header-width;
+                    height: SpreadsheetModel.row-count * SpreadsheetModel.row-height;
+
+                    // 行号格: 行虚拟化
+                    for r in root.visible-row-count: Rectangle {
+                        x: 0px;
+                        y: (root.first-row() + r) * SpreadsheetModel.row-height;
+                        width: SpreadsheetModel.row-header-width;
+                        height: SpreadsheetModel.row-height;
+                        background: SpreadsheetModel.row-in-sel(root.first-row() + r) ? MaterialPalette.primary-container : MaterialPalette.surface-container-highest;
+                        border-color: MaterialPalette.outline-variant;
+                        border-width: 1px;
+
+                        Text {
+                            x: 4px; y: 4px;
+                            text: (root.first-row() + r + 1);
+                            font-size: 11px; font-weight: 700;
+                            color: MaterialPalette.on-surface-variant;
+                            horizontal-alignment: center;
+                        }
+                    }
+
+                    // 行号交互: 拖拽选整行
+                    TouchArea {
+                        width: SpreadsheetModel.row-header-width;
+                        height: SpreadsheetModel.row-count * SpreadsheetModel.row-height;
+                        pointer-event(pe) => {
+                            if (pe.kind == PointerEventKind.down && pe.button == PointerEventButton.left) {
+                                if (SpreadsheetModel.row-count == 0) { return; }
+                                let r = SpreadsheetModel.hit-row(self.mouse-y);
+                                SpreadsheetModel.sel-mode = 1;
+                                SpreadsheetModel.anchor-row = r;
+                                SpreadsheetModel.current-row = r;
+                                SpreadsheetModel.anchor-col = 0;
+                                SpreadsheetModel.current-col = 0;
+                                SpreadsheetModel.commit();
+                            }
+                        }
+                        moved => {
+                            if (self.pressed && SpreadsheetModel.row-count > 0) {
+                                SpreadsheetModel.current-row = SpreadsheetModel.hit-row(self.mouse-y);
+                                SpreadsheetModel.commit();
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ===== 正文 (双向滚动 + 行虚拟化 + 选区覆盖层 + 右键菜单) =====
+            context-menu-area := ContextMenuArea {
+                Menu {
+                    MenuItem {
+                        title: "复制选区";
+                        activated => { SpreadsheetModel.copy(); }
+                    }
+                    MenuSeparator {}
+                    MenuItem {
+                        title: "自适应列宽";
+                        activated => { SpreadsheetModel.auto-fit-selection(); }
+                    }
+                }
+
+                body-scroll := ScrollView {
+                    x: SpreadsheetModel.row-header-width;
+                    y: SpreadsheetModel.col-header-height;
+                    width: max(0px, parent.width - SpreadsheetModel.row-header-width);
+                    height: max(0px, parent.height - SpreadsheetModel.col-header-height);
+                    content-width: SpreadsheetModel.total-w();
+                    content-height: max(SpreadsheetModel.row-count * SpreadsheetModel.row-height, 1px);
+
+                    content := Rectangle {
+                        x: 0px; y: 0px;
+                        width: max(SpreadsheetModel.total-w(), 1px);
+                        height: max(SpreadsheetModel.row-count * SpreadsheetModel.row-height, 1px);
+
+                        for r in root.visible-row-count: Rectangle {
+                            x: 0px;
+                            y: (root.first-row() + r) * SpreadsheetModel.row-height;
+                            width: SpreadsheetModel.total-w();
+                            height: SpreadsheetModel.row-height;
+
+                            for c in SpreadsheetModel.col-count: GridCell {
+                                x: SpreadsheetModel.col-x-at(c);
+                                y: 0px;
+                                width: SpreadsheetModel.col-width-of(c);
+                                height: SpreadsheetModel.row-height;
+                                value: SpreadsheetModel.cell-text(root.first-row() + r, c);
+                                align: SpreadsheetModel.header-align(c);
+                                zebra: Math.mod(root.first-row() + r, 2) == 1;
+                            }
+                        }
+
+                        sel-overlay := Rectangle {
+                            visible: SpreadsheetModel.row-count > 0;
+                            z: 100;
+                            x: SpreadsheetModel.col-x-at(SpreadsheetModel.sel-col0);
+                            y: SpreadsheetModel.sel-row0 * SpreadsheetModel.row-height;
+                            width: SpreadsheetModel.col-x-at(SpreadsheetModel.sel-col1 + 1) - SpreadsheetModel.col-x-at(SpreadsheetModel.sel-col0);
+                            height: (SpreadsheetModel.sel-row1 - SpreadsheetModel.sel-row0 + 1) * SpreadsheetModel.row-height;
+                            background: MaterialPalette.primary.with-alpha(15%);
+                            border-width: 2px;
+                            border-color: MaterialPalette.primary;
+                        }
+
+                        focus-overlay := Rectangle {
+                            visible: SpreadsheetModel.row-count > 0;
+                            z: 101;
+                            x: SpreadsheetModel.col-x-at(SpreadsheetModel.current-col);
+                            y: SpreadsheetModel.current-row * SpreadsheetModel.row-height;
+                            width: SpreadsheetModel.col-width-of(SpreadsheetModel.current-col);
+                            height: SpreadsheetModel.row-height;
+                            border-width: 1px;
+                            border-color: MaterialPalette.on-surface;
+                        }
+
+                        select-touch := TouchArea {
+                            z: 200;
+                            width: max(SpreadsheetModel.total-w(), 1px);
+                            height: max(SpreadsheetModel.row-count * SpreadsheetModel.row-height, 1px);
+                            pointer-event(pe) => {
+                                if (pe.kind == PointerEventKind.down && pe.button == PointerEventButton.right) {
+                                    context-menu-area.show({ x: self.mouse-x, y: self.mouse-y });
+                                    return;
+                                }
+                                if (pe.kind == PointerEventKind.down && pe.button == PointerEventButton.left) {
+                                    if (SpreadsheetModel.row-count == 0) { return; }
+                                    let r = SpreadsheetModel.hit-row(self.mouse-y);
+                                    let c = c-from-x(self.mouse-x);
+                                    if (pe.modifiers.shift) {
+                                        SpreadsheetModel.current-row = r;
+                                        SpreadsheetModel.current-col = c;
+                                    } else {
+                                        SpreadsheetModel.anchor-row = r;
+                                        SpreadsheetModel.anchor-col = c;
+                                        SpreadsheetModel.current-row = r;
+                                        SpreadsheetModel.current-col = c;
+                                    }
+                                    SpreadsheetModel.sel-mode = 0;
+                                    SpreadsheetModel.commit();
+                                }
+                            }
+                            moved => {
+                                if (self.pressed && SpreadsheetModel.row-count > 0) {
+                                    SpreadsheetModel.current-row = SpreadsheetModel.hit-row(self.mouse-y);
+                                    SpreadsheetModel.current-col = c-from-x(self.mouse-x);
+                                    SpreadsheetModel.commit();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- 状态栏 ---
+        Rectangle {
+            background: MaterialPalette.surface-container-high;
+            border-radius: 6px;
+            height: 30px;
+
+            Text {
+                x: 8px; y: 6px;
+                width: parent.width - 16px;
+                text: SpreadsheetModel.status;
+                color: MaterialPalette.on-surface-variant;
+                font-size: 12px;
+                overflow: elide;
+            }
+        }
+
+        // --- 提示 ---
+        Rectangle {
+            height: 40px;
+            background: MaterialPalette.tertiary-container;
+            border-radius: 6px;
+
+            Text {
+                x: 8px; y: 6px;
+                text: "单击选中 | Shift+点击选区域 | 拖拽选矩形 | 列头拖选整列 | 行号拖选整行 | 右键复制";
+                color: MaterialPalette.on-tertiary-container;
+                font-size: 11px;
+            }
+        }
+
+        // --- 底部安全区 ---
+        Rectangle {
+            height: root.safe-area-insets.bottom;
+            background: MaterialPalette.background;
+        }
+    }
+
+    // 命中列: 使用回调精确计算 (支持变列宽)
+    function c-from-x(mx: length) -> int {
+        if (SpreadsheetModel.col-count == 0) { return 0; }
+        return SpreadsheetModel.hit-col(mx / 1px);
+    }
+}

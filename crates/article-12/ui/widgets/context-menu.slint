@@ -1,0 +1,72 @@
+// 右键菜单组件 — 自包含实现
+
+import { MaterialPalette } from "@material";
+
+component MenuRow inherits Rectangle {
+    in property <string> text: "";
+    callback clicked;
+
+    height: 36px;
+    border-radius: 4px;
+
+    Text {
+        x: 12px;
+        y: 0px;
+        width: parent.width - 24px;
+        height: parent.height;
+        text: root.text;
+        color: MaterialPalette.on-surface;
+        font-size: 14px;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+export component ContextMenu inherits Rectangle {
+    callback activated(int);
+
+    x: 0px;
+    y: 0px;
+    width: 200px;
+    visible: false;
+    background: MaterialPalette.surface-container-high;
+    border-radius: 8px;
+    border-color: MaterialPalette.outline;
+    border-width: 1px;
+    z: 1000;
+
+    TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => { root.visible = false; }
+    }
+
+    VerticalLayout {
+        padding: 4px;
+        spacing: 2px;
+
+        MenuRow {
+            text: "复制选区";
+            clicked => { root.activated(0); }
+        }
+        MenuRow {
+            text: "正序排序";
+            clicked => { root.activated(1); }
+        }
+        MenuRow {
+            text: "倒序排序";
+            clicked => { root.activated(2); }
+        }
+        MenuRow {
+            text: "自适应列宽";
+            clicked => { root.activated(3); }
+        }
+    }
+
+    public function show() { root.visible = true; }
+    public function close() { root.visible = false; }
+}
