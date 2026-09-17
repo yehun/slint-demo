@@ -1,0 +1,44 @@
+// 第十三篇, Slint开发的第一个音乐播放器
+// PlayerModel — 全局状态: 播放控制 + 进度 + 播放列表
+
+export global PlayerModel {
+    // ===== 当前曲目信息 =====
+    in-out property <string> title: "未选择曲目";
+    in-out property <string> artist: "—";
+    in-out property <string> album: "";
+    in-out property <string> status: "就绪 — 点击「添加曲目」开始播放";
+
+    // ===== 播放状态 =====
+    in-out property <bool> is-playing: false;
+    in-out property <bool> has-track: false;
+    in-out property <bool> is-dragging: false;
+
+    // ===== 进度 (秒) =====
+    in-out property <float> current-time: 0;
+    in-out property <float> total-time: 0;
+    in-out property <float> progress: 0;  // 0.0 ~ 1.0
+
+    // ===== 音量 0.0 ~ 1.0 =====
+    in-out property <float> volume: 1.0;
+
+    // ===== 波形数据 (实时采样振幅, 0.0 ~ 1.0) =====
+    in-out property <[float]> waveform-data: [];
+    in-out property <int> waveform-bar-count: 80;
+
+    // ===== 播放列表 =====
+    in-out property <[string]> playlist-titles: [];
+    in-out property <[string]> playlist-paths: [];
+    in-out property <[float]> playlist-durations: [];
+    in-out property <int> current-index: -1;
+
+    // ===== 回调 =====
+    callback play-pause();
+    callback stop();
+    callback previous();
+    callback next();
+    callback seek(progress: float);
+    callback seek-preview(progress: float);
+    callback set-volume(v: float);
+    callback add-tracks();
+    callback play-at(index: int);
+}

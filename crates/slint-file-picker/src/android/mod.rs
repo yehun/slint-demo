@@ -188,6 +188,14 @@ pub fn pick_file_to_save(
     wait_and_notify(callback);
 }
 
+/// 打开文件选择对话框 (多选) — Android 暂不支持, 直接返回空
+pub fn pick_files(
+    _filters: Vec<FileFilter>,
+    callback: impl FnOnce(Vec<slint_fs::PlatformPath>) + Send + 'static,
+) {
+    callback(Vec::new());
+}
+
 // ============================================================
 // JNI 回调: Java → Rust (SlintFilePicker.handle 转发而来)
 // ============================================================

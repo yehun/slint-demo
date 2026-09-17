@@ -1,0 +1,453 @@
+// 第十三篇, Slint开发的第一个音乐播放器
+// UI — 自定义深色主题: 播放信息 + 进度条 + 控制按钮 + 播放列表
+//
+// 核心模式:
+// 1. rodio 在独立线程跑音频, Sink 通过 thread_local 回主线程操作
+// 2. slint::Timer 轮询 Instant::elapsed() 更新进度
+// 3. 播放列表用 [string] 数组, Rust 侧同步三列 (标题/路径/时长)
+
+import "../../../assets/fonts/MiSans-Normal.ttf";
+import { VerticalBox, HorizontalBox, ScrollView } from "std-widgets.slint";
+import { PlayerModel } from "player-model.slint";
+import {
+    CirclePlayIcon, CirclePauseIcon,
+    SkipBackIcon, SkipForwardIcon,
+    Music2Icon,
+} from "@lucide";
+
+export { PlayerModel }
+
+export component MainWindow inherits Window {
+    // ===== 深色主题色 =====
+    property <color> bg-dark: #121212;
+    property <color> bg-card: #252525;
+    property <color> accent: #bb86fc;
+    property <color> accent-dim: #3700b3;
+    property <color> text-primary: #e0e0e0;
+    property <color> text-secondary: #888888;
+    property <color> divider: #333333;
+
+    // ===== 安全区适配 (Android) =====
+    property <length> safe-top: root.safe-area-insets.top;
+    property <length> safe-bottom: root.safe-area-insets.bottom;
+
+    // ===== 时间格式化辅助 =====
+    pure function fmt-time(seconds: float) -> string {
+        if (seconds <= 0) { return "0:00"; }
+        let m = floor(seconds / 60);
+        let s = floor(seconds - m * 60);
+        m + ":" + (s < 10 ? "0" : "") + s;
+    }
+
+    background: bg-dark;
+    title: "第十三篇, Slint开发的第一个音乐播放器";
+    default-font-family: "MiSans";
+
+    VerticalBox {
+        padding: 20px;
+        spacing: 14px;
+
+        // --- 顶部安全区 (Android) ---
+        Rectangle {
+            height: root.safe-area-insets.top;
+            background: bg-dark;
+        }
+
+        // --- 标题 ---
+        HorizontalBox {
+            alignment: LayoutAlignment.center;
+            spacing: 8px;
+
+            Music2Icon {
+                width: 24px;
+                height: 24px;
+                colorize: text-primary;
+            }
+            Text {
+                text: "音乐播放器";
+                font-size: 22px;
+                font-weight: 700;
+                color: text-primary;
+                height: 28px;
+            }
+        }
+
+        // --- 实时波形 (上下跳动, 居中显示) ---
+        Rectangle {
+            height: 120px;
+            background: @linear-gradient(135deg, #1a1a2e, #2d1b4e);
+            border-radius: 12px;
+
+            // 中心线
+            Rectangle {
+                y: parent.height / 2 - 1px;
+                height: 2px;
+                width: parent.width;
+                background: #333333;
+            }
+
+            // 波形柱 (从中心线向上/向下跳动)
+            HorizontalBox {
+                padding: 4px;
+                spacing: 1px;
+                alignment: LayoutAlignment.center;
+
+                for amp[i] in PlayerModel.waveform-data: Rectangle {
+                    width: 3px;
+                    height: max(2px, amp * 50px);
+                    y: parent.height / 2 - self.height / 2;
+                    border-radius: 1px;
+                    background: i < PlayerModel.progress * PlayerModel.waveform-bar-count ? accent : text-secondary;
+                }
+            }
+
+            // 无音频时的占位
+            if PlayerModel.waveform-data.length == 0: Text {
+                text: "🎵 添加音乐开始播放";
+                color: text-secondary;
+                font-size: 14px;
+                y: parent.height / 2 - 10px;
+                x: parent.width / 2 - 80px;
+            }
+        }
+
+        // --- 曲目信息 ---
+        VerticalBox {
+            spacing: 4px;
+
+            Text {
+                text: PlayerModel.title;
+                font-size: 17px;
+                font-weight: 600;
+                color: text-primary;
+                horizontal-alignment: center;
+                overflow: elide;
+            }
+
+            Text {
+                text: PlayerModel.artist;
+                font-size: 13px;
+                color: text-secondary;
+                horizontal-alignment: center;
+            }
+        }
+
+        // --- 进度条 ---
+        VerticalBox {
+            spacing: 4px;
+
+            // 拖拽式进度条
+            TouchArea {
+                height: 24px;
+
+                // 背景轨道
+                Rectangle {
+                    y: 10px;
+                    height: 4px;
+                    width: parent.width;
+                    background: #333333;
+                    border-radius: 2px;
+                }
+
+                // 已播放部分 (x=0 明确锚定左侧, 从左向右高亮)
+                Rectangle {
+                    x: 0;
+                    y: 10px;
+                    height: 4px;
+                    width: parent.width * PlayerModel.progress;
+                    background: accent;
+                }
+
+                // 拖拽把手
+                Rectangle {
+                    y: 6px;
+                    width: 12px;
+                    height: 12px;
+                    border-radius: 6px;
+                    background: accent;
+                    x: parent.width * PlayerModel.progress - 6px;
+                }
+
+                clicked => {
+                    let p = max(0, min(1, self.mouse-x / self.width));
+                    PlayerModel.is-dragging = false;
+                    PlayerModel.seek(p);
+                }
+                moved => {
+                    if self.pressed {
+                        PlayerModel.is-dragging = true;
+                        let p = max(0, min(1, self.mouse-x / self.width));
+                        PlayerModel.seek-preview(p);
+                    }
+                }
+            }
+
+            // 时间标签
+            HorizontalBox {
+                Text {
+                    text: fmt-time(PlayerModel.current-time);
+                    font-size: 11px;
+                    color: text-secondary;
+                }
+                Rectangle { horizontal-stretch: 1; }
+                Text {
+                    text: fmt-time(PlayerModel.total-time);
+                    font-size: 11px;
+                    color: text-secondary;
+                }
+            }
+        }
+
+        // --- 播放控制按钮 (lucide 图标, 统一 24px) ---
+        HorizontalBox {
+            height: 56px;
+            spacing: 8px;
+            alignment: LayoutAlignment.center;
+
+            // 上一首
+            Rectangle {
+                width: 44px;
+                height: 44px;
+                background: bg-card;
+                border-radius: 22px;
+                TouchArea {
+                    clicked => { PlayerModel.previous(); }
+                }
+                SkipBackIcon {
+                    width: 24px;
+                    height: 24px;
+                    colorize: text-primary;
+                    x: (parent.width - 24px) / 2;
+                    y: (parent.height - 24px) / 2;
+                }
+            }
+
+            // 播放/暂停
+            Rectangle {
+                width: 44px;
+                height: 44px;
+                background: accent;
+                border-radius: 22px;
+                TouchArea {
+                    clicked => { PlayerModel.play-pause(); }
+                }
+                if PlayerModel.is-playing: CirclePauseIcon {
+                    width: 24px;
+                    height: 24px;
+                    colorize: #000000;
+                    x: (parent.width - 24px) / 2;
+                    y: (parent.height - 24px) / 2;
+                }
+                if !PlayerModel.is-playing: CirclePlayIcon {
+                    width: 24px;
+                    height: 24px;
+                    colorize: #000000;
+                    x: (parent.width - 24px) / 2;
+                    y: (parent.height - 24px) / 2;
+                }
+            }
+
+            // 下一首
+            Rectangle {
+                width: 44px;
+                height: 44px;
+                background: bg-card;
+                border-radius: 22px;
+                TouchArea {
+                    clicked => { PlayerModel.next(); }
+                }
+                SkipForwardIcon {
+                    width: 24px;
+                    height: 24px;
+                    colorize: text-primary;
+                    x: (parent.width - 24px) / 2;
+                    y: (parent.height - 24px) / 2;
+                }
+            }
+        }
+
+        // --- 音量控制 ---
+        HorizontalBox {
+            spacing: 8px;
+            alignment: LayoutAlignment.center;
+
+            Text { text: "🔈"; font-size: 14px; color: text-secondary; }
+
+            TouchArea {
+                width: 120px;
+                height: 24px;
+
+                // 背景
+                Rectangle {
+                    y: 10px;
+                    height: 4px;
+                    width: parent.width;
+                    background: #333333;
+                    border-radius: 2px;
+                }
+
+                // 已填充 (x=0 明确锚定左侧, 从左向右高亮)
+                Rectangle {
+                    x: 0;
+                    y: 10px;
+                    height: 4px;
+                    width: parent.width * PlayerModel.volume;
+                    background: accent;
+                }
+
+                // 把手
+                Rectangle {
+                    y: 6px;
+                    width: 12px;
+                    height: 12px;
+                    border-radius: 6px;
+                    background: accent;
+                    x: parent.width * PlayerModel.volume - 6px;
+                }
+
+                clicked => {
+                    let v = max(0, min(1, self.mouse-x / self.width));
+                    PlayerModel.set-volume(v);
+                }
+                moved => {
+                    if self.pressed {
+                        let v = max(0, min(1, self.mouse-x / self.width));
+                        PlayerModel.set-volume(v);
+                    }
+                }
+            }
+
+            Text {
+                text: floor(PlayerModel.volume * 100) + "%";
+                font-size: 11px;
+                color: text-secondary;
+                width: 30px;
+            }
+        }
+
+        // --- 播放列表标题 ---
+        Rectangle {
+            height: 28px;
+
+            Text {
+                y: 6px;
+                text: "播放列表 (" + PlayerModel.playlist-titles.length + ")";
+                font-size: 13px;
+                font-weight: 600;
+                color: text-primary;
+            }
+
+            Rectangle {
+                y: 27px;
+                height: 1px;
+                width: parent.width;
+                background: divider;
+            }
+        }
+
+        // --- 播放列表 (可滚动) ---
+        Rectangle {
+            height: 130px;
+            background: bg-card;
+            border-radius: 6px;
+
+            ScrollView {
+                height: parent.height;
+                width: parent.width;
+
+                VerticalBox {
+                    spacing: 2px;
+                    padding: 4px;
+
+                    for title[i] in PlayerModel.playlist-titles: Rectangle {
+                        height: 32px;
+                        background: i == PlayerModel.current-index ? accent-dim : transparent;
+                        border-radius: 4px;
+
+                        TouchArea {
+                            clicked => { PlayerModel.play-at(i); }
+                        }
+
+                        // 播放指示器
+                        if i == PlayerModel.current-index: Text {
+                            x: 8px;
+                            y: 8px;
+                            text: "▶";
+                            font-size: 10px;
+                            color: accent;
+                        }
+
+                        // 曲目序号
+                        Text {
+                            x: 22px;
+                            y: 8px;
+                            text: (i + 1) + ".";
+                            font-size: 12px;
+                            color: i == PlayerModel.current-index ? accent : text-secondary;
+                        }
+
+                        // 曲目标题
+                        Text {
+                            x: 44px;
+                            y: 8px;
+                            width: parent.width - 80px;
+                            text: title;
+                            font-size: 12px;
+                            color: i == PlayerModel.current-index ? text-primary : text-secondary;
+                            overflow: elide;
+                        }
+
+                        // 时长
+                        Text {
+                            x: parent.width - 36px;
+                            y: 8px;
+                            text: fmt-time(PlayerModel.playlist-durations[i]);
+                            font-size: 11px;
+                            color: text-secondary;
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- 添加曲目按钮 ---
+        Rectangle {
+            height: 36px;
+            background: bg-card;
+            border-radius: 6px;
+            border-width: 1px;
+            border-color: divider;
+
+            TouchArea {
+                clicked => { PlayerModel.add-tracks(); }
+            }
+
+            Text {
+                y: 9px;
+                horizontal-alignment: center;
+                text: "+ 添加曲目 (可多选: mp3 / wav / flac / ogg)";
+                font-size: 12px;
+                color: accent;
+            }
+        }
+
+        // --- 状态栏 ---
+        Rectangle {
+            height: 24px;
+
+            Text {
+                y: 4px;
+                text: PlayerModel.status;
+                font-size: 11px;
+                color: text-secondary;
+                overflow: elide;
+            }
+        }
+
+        // --- 底部安全区 (Android) ---
+        Rectangle {
+            height: root.safe-area-insets.bottom;
+            background: bg-dark;
+        }
+    }
+}

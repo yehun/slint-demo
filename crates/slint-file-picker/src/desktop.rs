@@ -52,3 +52,26 @@ pub fn pick_file_to_save(
 ) {
     run_dialog(Some(default_name.into()), filters, callback);
 }
+
+/// 打开文件选择对话框 (多选)
+pub fn pick_files(
+    filters: Vec<FileFilter>,
+    callback: impl FnOnce(Vec<PlatformPath>) + Send + 'static,
+) {
+    thread::spawn(move || {
+        let mut dialog = rfd::FileDialog::new();
+        for filter in &filters {
+            let exts: Vec<&str> = filter.extensions.iter().map(|s| s.as_str()).collect();
+            if !exts.is_empty() {
+                dialog = dialog.add_filter(filter.name.clone(), &exts);
+            }
+        }
+
+        let picked = dialog.pick_files();
+        let paths: Vec<PlatformPath> = picked
+            .map(|paths| paths.into_iter().map(PlatformPath::from_local).collect())
+            .unwrap_or_default();
+
+        callback(paths);
+    });
+}
