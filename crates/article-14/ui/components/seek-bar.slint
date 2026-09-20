@@ -1,0 +1,79 @@
+// 可拖拽进度条 (TouchArea 支持 Android 触摸)
+//
+// 拖动中只更新视觉位置并标记 change-seek, 真正 seek 推迟到释放(clicked)时执行,
+// 这样一次拖动只产生一次 avformat_seek_file, 而不是每个像素移动都 seek(避免卡顿)。
+
+import { PlayerModel } from "../player-model.slint";
+import { Theme } from "../theme.slint";
+import { VerticalBox, HorizontalBox } from "std-widgets.slint";
+
+export component SeekBar inherits VerticalBox {
+    spacing: 2px;
+
+    TouchArea {
+        height: 32px;
+
+        // 背景轨道
+        Rectangle {
+            y: 14px;
+            height: 4px;
+            width: parent.width;
+            background: Theme.bg-card-high;
+            border-radius: 2px;
+        }
+
+        // 已播放部分
+        Rectangle {
+            x: 0;
+            y: 14px;
+            height: 4px;
+            width: parent.width * (PlayerModel.duration > 0 ? PlayerModel.seek-position / PlayerModel.duration : 0);
+            background: Theme.accent;
+            border-radius: 2px;
+        }
+
+        // 把手
+        Rectangle {
+            y: 10px;
+            width: 14px;
+            height: 14px;
+            border-radius: 7px;
+            background: Theme.accent;
+            x: parent.width * (PlayerModel.duration > 0 ? PlayerModel.seek-position / PlayerModel.duration : 0) - 7px;
+        }
+
+        moved => {
+            if PlayerModel.duration > 0 {
+                let p = max(0, min(1, self.mouse-x / self.width));
+                // 拖动时同步进度与时间(change-seek=true 期间计时器不覆盖, 故安全)
+                PlayerModel.seek-position = p * PlayerModel.duration;
+                PlayerModel.current-time-f = p * PlayerModel.duration;
+                PlayerModel.change-seek = true;
+            }
+        }
+        clicked => {
+            if PlayerModel.duration > 0 {
+                let p = max(0, min(1, self.mouse-x / self.width));
+                PlayerModel.seek-position = p * PlayerModel.duration;
+                PlayerModel.current-time-f = p * PlayerModel.duration;
+                PlayerModel.change-seek = false;
+                PlayerModel.seek-to(PlayerModel.seek-position);
+            }
+        }
+    }
+
+    // 时间标签
+    HorizontalBox {
+        Text {
+            text: Theme.fmt-time(PlayerModel.current-time-f);
+            font-size: 11px;
+            color: Theme.text-secondary;
+        }
+        Rectangle { horizontal-stretch: 1; }
+        Text {
+            text: Theme.fmt-time(PlayerModel.duration);
+            font-size: 11px;
+            color: Theme.text-secondary;
+        }
+    }
+}

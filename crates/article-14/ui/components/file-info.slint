@@ -1,0 +1,38 @@
+// 文件信息: 标题 + 状态点 + 状态文本
+
+import { PlayerModel } from "../player-model.slint";
+import { Theme } from "../theme.slint";
+import { VerticalBox, HorizontalBox } from "std-widgets.slint";
+
+export component FileInfo inherits VerticalBox {
+    spacing: 4px;
+
+    Text {
+        text: PlayerModel.file-title != "" ? PlayerModel.file-title : "未选择视频";
+        font-size: 15px;
+        font-weight: 600;
+        color: Theme.text-primary;
+        horizontal-alignment: center;
+        overflow: elide;
+    }
+
+    HorizontalBox {
+        alignment: center;
+        cross-axis-alignment: center;
+        spacing: 6px;
+
+        Rectangle {
+            width: 6px;
+            height: 6px;
+            border-radius: 3px;
+            background: PlayerModel.playing ? Theme.accent : Theme.text-secondary;
+        }
+
+        Text {
+            text: PlayerModel.status-text;
+            font-size: 11px;
+            color: Theme.text-secondary;
+            overflow: elide;
+        }
+    }
+}

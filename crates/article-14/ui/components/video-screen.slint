@@ -1,0 +1,65 @@
+// 影院屏: 视频帧 + 未选择占位 + 居中播放按钮
+
+import { PlayerModel } from "../player-model.slint";
+import { Theme } from "../theme.slint";
+import { VerticalBox } from "std-widgets.slint";
+import { PlayIcon, FilmIcon } from "@lucide";
+
+export component VideoScreen inherits Rectangle {
+    min-height: 200px;
+    border-radius: 16px;
+    background: PlayerModel.file-path != "" ? Theme.scrim : Theme.bg-card-high;
+    clip: true;
+
+    // 视频帧 (来自 Rust 的 SharedPixelBuffer)
+    Image {
+        source: PlayerModel.video-frame;
+        width: 100%;
+        height: 100%;
+        image-fit: contain;
+    }
+
+    // 未选择视频时占位
+    if PlayerModel.file-path == "": VerticalBox {
+        width: 100%;
+        height: 100%;
+        alignment: center;
+        cross-axis-alignment: center;
+        spacing: 8px;
+
+        FilmIcon {
+            width: 40px;
+            height: 40px;
+            colorize: Theme.text-secondary;
+        }
+
+        Text {
+            text: "选择视频文件开始播放";
+            font-size: 13px;
+            color: Theme.text-secondary;
+            horizontal-alignment: center;
+        }
+    }
+
+    // 已选择但暂停时: 居中播放按钮
+    if PlayerModel.file-path != "" && !PlayerModel.playing: Rectangle {
+        width: 56px;
+        height: 56px;
+        border-radius: 28px;
+        x: (root.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        background: #ffffff.with_alpha(0.9);
+
+        TouchArea {
+            clicked => { PlayerModel.play(); }
+        }
+
+        PlayIcon {
+            width: 26px;
+            height: 26px;
+            x: (parent.width - 26px) / 2 + 2px;
+            y: (parent.height - 26px) / 2;
+            colorize: #000000.with_alpha(0.8);
+        }
+    }
+}

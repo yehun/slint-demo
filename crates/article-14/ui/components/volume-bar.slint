@@ -1,0 +1,78 @@
+// 音量滑块: 单独占一整行(与进度条同构), TouchArea 由 HorizontalBox 拉伸到整行宽度,
+// 得到与进度条一致的大触摸目标。
+//
+// 注意: 不要把滑块塞进 alignment:center 的按钮行——那里子元素按自然尺寸居中,
+// horizontal-stretch 会塌缩成 0 宽(只剩把手圆点)。
+//
+// 拖动/点击必须同步写 PlayerModel.volume, 否则声音虽然变了, 但进度条视觉不动,
+// 在真机上看起来就像"拖不动/不支持调节"。这与 seek 条写 seek-position 同构。
+
+import { PlayerModel } from "../player-model.slint";
+import { Theme } from "../theme.slint";
+import { HorizontalBox } from "std-widgets.slint";
+import { Volume2Icon } from "@lucide";
+
+export component VolumeBar inherits HorizontalBox {
+    height: 40px;
+    spacing: 8px;
+
+    Volume2Icon {
+        width: 18px;
+        height: 18px;
+        colorize: Theme.text-primary;
+    }
+
+    // 音量滑条: 填满整行剩余宽度, 大触摸目标
+    TouchArea {
+        horizontal-stretch: 1;
+        height: 40px;
+
+        // 背景轨道
+        Rectangle {
+            y: 18px;
+            height: 4px;
+            width: parent.width;
+            background: Theme.bg-card-high;
+            border-radius: 2px;
+        }
+
+        // 已填充
+        Rectangle {
+            x: 0;
+            y: 18px;
+            height: 4px;
+            width: parent.width * PlayerModel.volume;
+            background: Theme.accent;
+        }
+
+        // 把手
+        Rectangle {
+            y: 13px;
+            width: 14px;
+            height: 14px;
+            border-radius: 7px;
+            background: Theme.accent;
+            x: parent.width * PlayerModel.volume - 7px;
+        }
+
+        moved => {
+            let v = max(0, min(1, self.mouse-x / self.width));
+            PlayerModel.volume = v;
+            PlayerModel.change-volume(v);
+        }
+        clicked => {
+            let v = max(0, min(1, self.mouse-x / self.width));
+            PlayerModel.volume = v;
+            PlayerModel.change-volume(v);
+        }
+    }
+
+    // 百分比
+    Text {
+        text: floor(PlayerModel.volume * 100) + "%";
+        font-size: 11px;
+        color: Theme.text-secondary;
+        width: 34px;
+        vertical-alignment: center;
+    }
+}

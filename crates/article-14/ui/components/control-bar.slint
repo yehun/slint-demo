@@ -1,0 +1,59 @@
+// 控制按钮: 停止 + 播放/暂停
+
+import { PlayerModel } from "../player-model.slint";
+import { Theme } from "../theme.slint";
+import { HorizontalBox } from "std-widgets.slint";
+import { PlayIcon, PauseIcon, SquareIcon } from "@lucide";
+
+export component ControlBar inherits HorizontalBox {
+    height: 56px;
+    spacing: 20px;
+    alignment: center;
+
+    // 停止
+    Rectangle {
+        width: 44px;
+        height: 44px;
+        border-radius: 22px;
+        background: Theme.bg-card-high;
+
+        TouchArea {
+            clicked => { PlayerModel.stop-play(); }
+        }
+
+        SquareIcon {
+            width: 18px;
+            height: 18px;
+            colorize: Theme.text-primary;
+            x: (parent.width - 18px) / 2;
+            y: (parent.height - 18px) / 2;
+        }
+    }
+
+    // 播放/暂停
+    Rectangle {
+        width: 56px;
+        height: 56px;
+        border-radius: 28px;
+        background: Theme.accent;
+
+        TouchArea {
+            clicked => { PlayerModel.play(); }
+        }
+
+        if PlayerModel.playing: PauseIcon {
+            width: 24px;
+            height: 24px;
+            colorize: #000000;
+            x: (parent.width - 24px) / 2;
+            y: (parent.height - 24px) / 2;
+        }
+        if !PlayerModel.playing: PlayIcon {
+            width: 24px;
+            height: 24px;
+            colorize: #000000;
+            x: (parent.width - 24px) / 2 + 2px;
+            y: (parent.height - 24px) / 2;
+        }
+    }
+}

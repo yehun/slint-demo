@@ -1,0 +1,72 @@
+[package]
+name = "article-14"
+version = "0.1.0"
+edition = "2024"
+authors = ["yehun"]
+description = "第十四篇, Slint开发的第一个视频播放器 — ffmpeg-next 解码 + cpal 音频 + A/V 同步"
+build = "build.rs"
+
+[dependencies]
+slint = { workspace = true }
+log = "0.4"
+anyhow = "1"
+thiserror = "2"
+parking_lot = "0.12"
+ringbuf = "0.3.3"
+cpal = { version = "0.16", default-features = false }
+ffmpeg-next = "7.1"
+slint-file-picker = { path = "../slint-file-picker" }
+slint-fs = { path = "../slint-fs" }
+lucide-slint = "0.1"
+
+[build-dependencies]
+slint-build = { workspace = true }
+lucide-slint = "0.1"
+
+[features]
+default = ["desktop"]
+desktop = []
+android = ["slint/backend-android-activity-06"]
+
+[lib]
+path = "src/lib.rs"
+crate-type = ["cdylib", "lib"]
+
+[[bin]]
+path = "src/main.rs"
+name = "article_14"
+
+# ===== Android 构建配置 =====
+[package.metadata.android]
+use_aapt2 = true
+use_gradle = true
+package = "com.example.article14"
+build_targets = ["aarch64-linux-android"]
+min_sdk_version = 30
+target_sdk_version = 35
+compile_sdk_version = 35
+java_sources = "android/java"
+
+[package.metadata.android.application]
+label = "Article 14 - Video Player"
+
+[[package.metadata.android.application.activity]]
+name = "com.example.article14.MainActivity"
+orientation = "portrait"
+launch_mode = "singleTop"
+config_changes = "uiMode|screenSize|screenLayout|density|keyboard|keyboardHidden"
+exported = true
+resizeable_activity = false
+always_retain_task_state = true
+
+[[package.metadata.android.application.activity.intent_filter]]
+actions = ["android.intent.action.VIEW", "android.intent.action.MAIN"]
+categories = ["android.intent.category.DEFAULT", "android.intent.category.LAUNCHER"]
+
+[[package.metadata.android.application.activity.meta_data]]
+name = "android.app.lib_name"
+value = "article_14"
+
+[package.metadata.android.signing.release]
+path = "../../assets/keystore/debug.keystore"
+keystore_password = "android"

@@ -1,0 +1,54 @@
+// 顶部标题栏 + 选择视频按钮
+
+import { PlayerModel } from "../player-model.slint";
+import { Theme } from "../theme.slint";
+import { HorizontalBox } from "std-widgets.slint";
+import { FolderOpenIcon } from "@lucide";
+
+export component TitleBar inherits HorizontalBox {
+    height: 40px;
+    spacing: 10px;
+    alignment: LayoutAlignment.stretch;
+
+    Text {
+        text: "🎬 视频播放器";
+        font-size: 18px;
+        font-weight: 700;
+        color: Theme.text-primary;
+        vertical-alignment: center;
+    }
+
+    // 推子: 把标题和按钮推向两端
+    Rectangle { horizontal-stretch: 1; }
+
+    Rectangle {
+        width: 110px;
+        height: 34px;
+        border-radius: 17px;
+        background: Theme.accent;
+
+        TouchArea {
+            clicked => { PlayerModel.select-video(); }
+        }
+
+        FolderOpenIcon {
+            width: 14px;
+            height: 14px;
+            x: 14px;
+            y: (parent.height - 14px) / 2;
+            colorize: #000000;
+        }
+
+        Text {
+            x: 34px;
+            width: parent.width - 40px;
+            height: parent.height;
+            text: "选择视频";
+            font-size: 12px;
+            font-weight: 600;
+            color: #000000;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+}

@@ -1,0 +1,59 @@
+// 第十四篇, Slint开发的第一个视频播放器 — 主界面
+//
+// 组合各独立组件(见 ui/components/): 标题栏 / 影院屏 / 文件信息 / 进度条 / 控制按钮 / 音量条。
+// 主题色与工具函数集中在 theme.slint; 数据模型在 player-model.slint。
+// Rust 侧通过 `MainWindow::new()` + `global::<PlayerModel>()` 访问, 故本文件须保留
+// `export component MainWindow` 与 `export { PlayerModel }`。
+
+import "../../../assets/fonts/MiSans-Normal.ttf";
+import { VerticalBox } from "std-widgets.slint";
+import { PlayerModel } from "player-model.slint";
+export { PlayerModel }
+import { Theme } from "theme.slint";
+import { TitleBar } from "components/top-bar.slint";
+import { VideoScreen } from "components/video-screen.slint";
+import { FileInfo } from "components/file-info.slint";
+import { SeekBar } from "components/seek-bar.slint";
+import { ControlBar } from "components/control-bar.slint";
+import { VolumeBar } from "components/volume-bar.slint";
+
+export component MainWindow inherits Window {
+    background: Theme.bg-dark;
+    title: "第十四篇, Slint开发的第一个视频播放器";
+    default-font-family: "MiSans";
+    preferred-width: 400px;
+    preferred-height: 650px;
+
+    // ===== 安全区 (Android) =====
+    property <length> safe-top: root.safe-area-insets.top;
+    property <length> safe-bottom: root.safe-area-insets.bottom;
+
+    VerticalBox {
+        padding: 16px;
+        spacing: 12px;
+
+        // --- 顶部安全区 (Android) ---
+        Rectangle {
+            height: root.safe-area-insets.top;
+            background: Theme.bg-dark;
+        }
+
+        TitleBar {}
+
+        VideoScreen {}
+
+        FileInfo {}
+
+        SeekBar {}
+
+        ControlBar {}
+
+        VolumeBar {}
+
+        // --- 底部安全区 (Android) ---
+        Rectangle {
+            height: root.safe-area-insets.bottom;
+            background: Theme.bg-dark;
+        }
+    }
+}

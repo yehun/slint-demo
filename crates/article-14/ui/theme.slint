@@ -1,0 +1,23 @@
+// 第十四篇, Slint视频播放器 — 深色主题集中管理
+//
+// 所有颜色与通用工具函数集中在此, 视图组件通过 `import { Theme }` 共享。
+// 修改主题只需改这一处, 不必逐个组件调整。
+
+export global Theme {
+    in-out property <color> bg-dark: #121212;
+    in-out property <color> bg-card: #1e1e1e;
+    in-out property <color> bg-card-high: #2a2a2a;
+    in-out property <color> accent: #bb86fc;
+    in-out property <color> accent-dim: #3700b3;
+    in-out property <color> text-primary: #e0e0e0;
+    in-out property <color> text-secondary: #888888;
+    in-out property <color> scrim: #000000;
+
+    // 秒 → "m:ss" 格式化(纯函数, 可在任意绑定里调用)
+    public pure function fmt-time(seconds: float) -> string {
+        if (seconds <= 0) { return "0:00"; }
+        let m = floor(seconds / 60);
+        let s = floor(seconds - m * 60);
+        m + ":" + (s < 10 ? "0" : "") + s;
+    }
+}

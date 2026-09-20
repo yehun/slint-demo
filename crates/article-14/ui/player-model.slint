@@ -1,0 +1,36 @@
+// 第十四篇, Slint开发的第一个视频播放器 — 全局数据模型
+//
+// UI 侧只读/回调, Rust 侧写各字段。
+// 拆出独立文件便于与视图解耦。
+
+export global PlayerModel {
+    // ===== 视频帧 =====
+    in property <image> video-frame;
+
+    // ===== 播放状态 =====
+    in property <bool> playing: false;
+    in property <string> status-text: "就绪";
+    in property <string> file-title: "";
+    in-out property <string> file-path: "";
+
+    // ===== 进度 =====
+    // seek-position / current-time-f 由 Slint 计时器从音频时钟统一驱动(仅在非拖动时),
+    // 帧回调只负责更新 video-frame, 避免两个更新源互相覆盖导致时间显示跳动。
+    in-out property <float> seek-position: 0.0;
+    in property <float> duration: 0.0;
+    in property <float> current-time-f: 0.0;
+
+    // ===== 音量 =====
+    in-out property <float> volume: 1.0;  // 默认 100%
+
+    // ===== seek 状态 =====
+    ///< 用户正在拖动进度条(帧回调不更新进度, 避免跳动)
+    in-out property <bool> change-seek: false;
+
+    // ===== 控制回调 =====
+    callback play();
+    callback select-video();
+    callback stop-play();
+    callback seek-to(float);
+    callback change-volume(float);
+}
