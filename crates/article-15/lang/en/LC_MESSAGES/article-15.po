@@ -1,0 +1,55 @@
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: article-15 0.1.0\n"
+"POT-Creation-Date: 2026-09-22 05:30+0000\n"
+"PO-Revision-Date: 2026-09-22 05:30+0000\n"
+"Last-Translator: Automatically generated\n"
+"Language-Team: none\n"
+"Language: en\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: ui/app.slint:13
+msgctxt "MainWindow"
+msgid "Slint i18n Demo"
+msgstr "Slint i18n Demo"
+
+#: ui/app.slint:26
+msgctxt "MainWindow"
+msgid "Internationalization"
+msgstr "Internationalization"
+
+#: ui/app.slint:32
+msgctxt "MainWindow"
+msgid "Hello, world!"
+msgstr "Hello, world!"
+
+#: ui/app.slint:38
+msgctxt "MainWindow"
+msgid ""
+"This sentence is translated by Slint's @tr macro. Switch the language below."
+msgstr ""
+"This sentence is translated by Slint's @tr macro. Switch the language below."
+
+#: ui/app.slint:59
+msgctxt "MainWindow"
+msgid "System language: "
+msgstr "System language: "
+
+#: ui/app.slint:65
+msgctxt "MainWindow"
+msgid "Current language: "
+msgstr "Current language: "
+
+#: ui/app.slint:76
+msgctxt "MainWindow"
+msgid "English"
+msgstr "English"
+
+#: ui/app.slint:81
+msgctxt "MainWindow"
+msgid "中文"
+msgstr "中文"

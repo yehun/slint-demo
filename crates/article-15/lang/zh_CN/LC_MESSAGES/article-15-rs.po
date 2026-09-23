@@ -1,0 +1,19 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: article-15-rs 1.0\n"
+"PO-Revision-Date: 2026-09-22\n"
+"Last-Translator: yehun\n"
+"Language-Team: zh_CN\n"
+"Language: zh_CN\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+# Rust 侧翻译, msgctxt 固定为 "Rust" (见 src/i18n.rs 的 RUST_MSGCTXT)。
+msgctxt "Rust"
+msgid "Welcome to Slint i18n"
+msgstr "欢迎体验 Slint 国际化"
+
+msgctxt "Rust"
+msgid "Language switched"
+msgstr "语言已切换"

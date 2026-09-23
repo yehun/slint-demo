@@ -1,0 +1,86 @@
+import { Button } from "std-widgets.slint";
+import "../../../assets/fonts/MiSans-Regular.ttf";
+
+// 语言切换的全局状态 + 回调。Rust 侧通过 global::<I18nModel>() 读写这些属性。
+export global I18nModel {
+    in-out property <string> current_locale: "en";
+    in-out property <string> system_locale: "unknown";
+    in-out property <string> rust_message: "Rust message";
+    callback change-language(string);
+}
+
+export component MainWindow inherits Window {
+    title: @tr("Slint i18n Demo");
+    min-width: 360px;
+    min-height: 480px;
+    preferred-width: 420px;
+    preferred-height: 680px;
+    default-font-family: "MiSans";
+
+    VerticalLayout {
+        alignment: center;
+        padding: 24px;
+        spacing: 16px;
+
+        Text {
+            text: @tr("Internationalization");
+            font-size: 26px;
+            horizontal-alignment: center;
+        }
+
+        Text {
+            text: @tr("Hello, world!");
+            font-size: 18px;
+            horizontal-alignment: center;
+        }
+
+        Text {
+            text: @tr("This sentence is translated by Slint's @tr macro. Switch the language below.");
+            font-size: 14px;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+        }
+
+        Rectangle {
+            height: 1px;
+            width: 100%;
+            background: #333333;
+        }
+
+        // Rust 侧翻译串 (内置 .mo 解析器) —— 与上面的 @tr 平行
+        Text {
+            text: I18nModel.rust_message;
+            font-size: 14px;
+            horizontal-alignment: center;
+            color: #bb86fc;
+        }
+
+        Text {
+            text: @tr("System language: ") + I18nModel.system_locale;
+            font-size: 13px;
+            horizontal-alignment: center;
+        }
+
+        Text {
+            text: @tr("Current language: ") + I18nModel.current_locale;
+            font-size: 13px;
+            horizontal-alignment: center;
+        }
+
+        // 语言切换: 点击即时热切换 (select_bundled_translation)
+        HorizontalLayout {
+            alignment: center;
+            spacing: 12px;
+
+            Button {
+                text: @tr("English");
+                clicked => { I18nModel.change-language("en"); }
+            }
+
+            Button {
+                text: @tr("中文");
+                clicked => { I18nModel.change-language("zh_CN"); }
+            }
+        }
+    }
+}
