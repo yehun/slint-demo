@@ -4,6 +4,8 @@ Slint 跨平台系列文章的 **配套 demo 仓库**.
 
 > 项目地址: [github.com/yehun/slint-demo](https://github.com/yehun/slint-demo)
 
+> **公众号: 叶魂** —— 系列文章首发地。懒人包(预编译二进制 / 打包好的模型 / APK)在公众号回复关键词 **`article16`** 领取; 源码永远在 GitHub 公开, 不用关注也能拿。
+
 ---
 
 ## 项目初衷
@@ -22,8 +24,10 @@ Slint 跨平台系列文章的 **配套 demo 仓库**.
 | [crates/slint-common](crates/slint-common/) | — | 共享模板 (预留) | 📦 预留 |
 | [crates/slint-fs](crates/slint-fs/) | — | PlatformPath 统一路径抽象 (desktop 本地路径 / Android content URI 双模式) | ✅ 可用 |
 | [crates/slint-file-picker](crates/slint-file-picker/) | — | 跨平台文件选择器 (desktop rfd / Android SAF), 结果为 PlatformPath | ✅ 可用 |
+| [crates/slint-lux-tts](crates/slint-lux-tts/) | — | 本地零样本语音克隆推理库 (LuxTTS ONNX: G2P + 流匹配 + 双路声码器) | ✅ 可用 |
 | `crates/article-03` | 第三幕 | Android JNI 桥 | 🚧 待写 |
 | `crates/article-11` | 第十一幕 | 文件选择与写入 (slint-file-picker + slint-fs) | ✅ 可运行 |
+| [crates/article-16](crates/article-16/) | 第十六幕 | 语音克隆 (参考音频 + 文本 → 48kHz 波形), 桌面/Android | ✅ 可运行 |
 
 ---
 
