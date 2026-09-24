@@ -1,0 +1,36 @@
+[package]
+name = "slint-lux-tts"
+version = "0.1.0"
+edition = "2024"
+authors = ["yehun"]
+description = "本地零样本语音克隆 —— LuxTTS 权重的纯 Rust ONNX 推理 (flow-matching 锚点 ODE + 双路 Vocos)"
+
+[dependencies]
+anyhow = "1"
+log = "0.4"
+hound = "3.5"
+claxon = "0.4"
+# 兜底解码 mp3/aac/ogg 等压缩格式的参考音频
+symphonia = { version = "0.5", features = ["mp3", "aac", "ogg", "flac", "wav"] }
+jieba-rs = "0.7"
+rustfft = "6"
+ndarray = "0.17"
+
+# 桌面端: load-dynamic 运行期加载 libonnxruntime(编译期不链接, 需要系统装 onnxruntime
+# 或设置 ORT_DYLIB_PATH)。Android 见下方 target 段。
+ort = { version = "=2.0.0-rc.13", default-features = false, features = [
+    "std",
+    "ndarray",
+    "load-dynamic",
+] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+# Android: bionic 的 dlsym 解析不了版本化符号, load-dynamic 不可用, 必须编译期链接。
+# 需要 build.rs 指向预编译的 libonnxruntime.a/so(本仓库不携带, 交叉编译时自行接入)。
+ort = { version = "=2.0.0-rc.13", default-features = false, features = [
+    "std",
+    "ndarray",
+] }
+
+[dev-dependencies]
+env_logger = "0.11"
