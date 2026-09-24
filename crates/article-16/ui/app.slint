@@ -1,0 +1,344 @@
+// 第十六篇, Slint 语音克隆
+// UI — 深色卡片式: 模型状态 / 参考音频 / 合成文本 / 结果播放
+//
+// 核心模式:
+// 1. 所有耗时动作(加载模型、合成)都在 Rust 工作线程里跑, UI 只读写 CloneModel 属性
+// 2. Slint 主线程不碰模型: 回调触发线程, 线程用 upgrade_in_event_loop 回写属性
+// 3. 波形结果留在 Rust 侧(Vec<f32>), 播放用 rodio 的 SamplesBuffer 直接喂
+
+import "../../../assets/fonts/MiSans-Normal.ttf";
+import { Button, Slider, LineEdit, TextEdit, ScrollView } from "std-widgets.slint";
+
+export global CloneModel {
+    // --- 模型 ---
+    in-out property <string> model-status: "模型未加载";
+    in-out property <bool> model-ready: false;
+
+    // --- 参考音频 ---
+    in-out property <string> ref-name: "";
+    in-out property <string> ref-info: "未选择参考音频(建议 5~15 秒干净人声)";
+    in-out property <string> ref-text: "";
+    in-out property <bool> ref-ready: false;
+
+    // --- 合成 ---
+    in-out property <string> synth-text: "语音克隆的难点从来不是把话说出来, 而是让机器学会你说话的样子。";
+    in-out property <float> speed: 1.0;
+    in-out property <int> steps: 8;
+
+    // --- 状态 / 结果 ---
+    in-out property <string> status: "请先加载模型";
+    in-out property <bool> busy: false;
+    in-out property <float> progress: 0;
+    in-out property <bool> has-result: false;
+    in-out property <string> result-info: "尚无合成结果";
+    in-out property <bool> playing: false;
+
+    callback load-model();
+    callback pick-reference();
+    callback synthesize();
+    callback play();
+    callback stop-play();
+    callback save();
+}
+
+export component MainWindow inherits Window {
+    // ===== 主题色(与第十三篇同一套深色) =====
+    property <color> bg-dark: #121212;
+    property <color> bg-card: #1e1e1e;
+    property <color> border: #2f2f2f;
+    property <color> accent: #bb86fc;
+    property <color> accent-dim: #3700b3;
+    property <color> text-primary: #e8e8e8;
+    property <color> text-secondary: #9a9a9a;
+    property <color> warn: #ffb74d;
+
+    title: "第十六篇, Slint 语音克隆";
+    background: bg-dark;
+    default-font-family: "MiSans";
+    min-width: 380px;
+    min-height: 620px;
+    preferred-width: 460px;
+    preferred-height: 780px;
+
+    // 卡片容器
+    property <length> card-pad: 14px;
+
+    ScrollView {
+        VerticalLayout {
+            padding: 18px;
+            spacing: 14px;
+
+            // ===== 标题 =====
+            VerticalLayout {
+                spacing: 4px;
+                Text {
+                    text: "语音克隆 · Voice Clone";
+                    font-size: 22px;
+                    font-weight: 700;
+                    color: text-primary;
+                }
+                Text {
+                    text: "本地零样本 TTS · 3 秒参考音 → 任意文本";
+                    font-size: 12px;
+                    color: text-secondary;
+                }
+            }
+
+            // ===== 模型卡片 =====
+            Rectangle {
+                background: bg-card;
+                border-radius: 12px;
+                border-width: 1px;
+                border-color: border;
+
+                VerticalLayout {
+                    padding: card-pad;
+                    spacing: 10px;
+
+                    HorizontalLayout {
+                        alignment: space-between;
+                        Text {
+                            text: "① 模型";
+                            font-size: 14px;
+                            font-weight: 600;
+                            color: accent;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: CloneModel.model-ready ? "已就绪" : "未加载";
+                            font-size: 12px;
+                            color: CloneModel.model-ready ? #81c784 : text-secondary;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    Text {
+                        text: CloneModel.model-status;
+                        font-size: 12px;
+                        color: text-secondary;
+                        wrap: word-wrap;
+                    }
+
+                    Button {
+                        text: CloneModel.model-ready ? "重新加载模型" : "加载模型";
+                        enabled: !CloneModel.busy;
+                        clicked => { CloneModel.load-model(); }
+                    }
+                }
+            }
+
+            // ===== 参考音频卡片 =====
+            Rectangle {
+                background: bg-card;
+                border-radius: 12px;
+                border-width: 1px;
+                border-color: border;
+
+                VerticalLayout {
+                    padding: card-pad;
+                    spacing: 10px;
+
+                    HorizontalLayout {
+                        alignment: space-between;
+                        Text {
+                            text: "② 参考音频";
+                            font-size: 14px;
+                            font-weight: 600;
+                            color: accent;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: CloneModel.ref-ready ? "已就绪" : "待选择";
+                            font-size: 12px;
+                            color: CloneModel.ref-ready ? #81c784 : text-secondary;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    Button {
+                        text: "选择音频文件";
+                        enabled: !CloneModel.busy;
+                        clicked => { CloneModel.pick-reference(); }
+                    }
+
+                    Text {
+                        text: CloneModel.ref-name;
+                        font-size: 12px;
+                        color: text-primary;
+                        wrap: word-wrap;
+                    }
+
+                    Text {
+                        text: CloneModel.ref-info;
+                        font-size: 11px;
+                        color: text-secondary;
+                        wrap: word-wrap;
+                    }
+
+                    // 参考音频的转写文本: G2P 对齐用, 必填
+                    Text {
+                        text: "参考音频说了什么(必填, 用于音素对齐)";
+                        font-size: 11px;
+                        color: CloneModel.ref-text == "" ? warn : text-secondary;
+                        wrap: word-wrap;
+                    }
+
+                    LineEdit {
+                        placeholder-text: "例如: 大家好, 我是叶魂。";
+                        text: CloneModel.ref-text;
+                        enabled: !CloneModel.busy;
+                        edited(t) => { CloneModel.ref-text = t; }
+                    }
+                }
+            }
+
+            // ===== 合成文本卡片 =====
+            Rectangle {
+                background: bg-card;
+                border-radius: 12px;
+                border-width: 1px;
+                border-color: border;
+
+                VerticalLayout {
+                    padding: card-pad;
+                    spacing: 10px;
+
+                    Text {
+                        text: "③ 要说的话";
+                        font-size: 14px;
+                        font-weight: 600;
+                        color: accent;
+                    }
+
+                    TextEdit {
+                        height: 96px;
+                        text: CloneModel.synth-text;
+                        wrap: word-wrap;
+                        enabled: !CloneModel.busy;
+                        edited(t) => { CloneModel.synth-text = t; }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Text {
+                            text: "语速 " + (root.fmt-1(CloneModel.speed));
+                            font-size: 12px;
+                            color: text-secondary;
+                            vertical-alignment: center;
+                            min-width: 70px;
+                        }
+                        Slider {
+                            horizontal-stretch: 1;
+                            minimum: 0.7;
+                            maximum: 1.4;
+                            value: CloneModel.speed;
+                            enabled: !CloneModel.busy;
+                            changed(v) => { CloneModel.speed = v; }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Text {
+                            text: "扩散步数 " + CloneModel.steps;
+                            font-size: 12px;
+                            color: text-secondary;
+                            vertical-alignment: center;
+                            min-width: 70px;
+                        }
+                        Slider {
+                            horizontal-stretch: 1;
+                            minimum: 4;
+                            maximum: 16;
+                            value: CloneModel.steps;
+                            enabled: !CloneModel.busy;
+                            changed(v) => { CloneModel.steps = round(v); }
+                        }
+                    }
+                }
+            }
+
+            // ===== 合成按钮 + 进度 =====
+            VerticalLayout {
+                spacing: 8px;
+                Button {
+                    text: CloneModel.busy ? "合成中…" : "④ 开始合成";
+                    enabled: CloneModel.model-ready && CloneModel.ref-ready && !CloneModel.busy;
+                    clicked => { CloneModel.synthesize(); }
+                }
+
+                // 合成给不出精确百分比(流匹配是固定步数迭代), 用循环条表示"还在跑"
+                Rectangle {
+                    height: 6px;
+                    border-radius: 3px;
+                    background: border;
+                    visible: CloneModel.busy;
+
+                    Rectangle {
+                        width: parent.width * CloneModel.progress;
+                        height: 100%;
+                        border-radius: 3px;
+                        background: accent;
+                    }
+                }
+            }
+
+            // ===== 结果卡片 =====
+            Rectangle {
+                background: bg-card;
+                border-radius: 12px;
+                border-width: 1px;
+                border-color: border;
+
+                VerticalLayout {
+                    padding: card-pad;
+                    spacing: 10px;
+
+                    Text {
+                        text: "⑤ 结果";
+                        font-size: 14px;
+                        font-weight: 600;
+                        color: accent;
+                    }
+
+                    Text {
+                        text: CloneModel.result-info;
+                        font-size: 12px;
+                        color: CloneModel.has-result ? text-primary : text-secondary;
+                        wrap: word-wrap;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Button {
+                            text: CloneModel.playing ? "停止" : "播放";
+                            enabled: CloneModel.has-result;
+                            clicked => {
+                                if (CloneModel.playing) { CloneModel.stop-play(); }
+                                else { CloneModel.play(); }
+                            }
+                        }
+                        Button {
+                            text: "保存 WAV";
+                            enabled: CloneModel.has-result && !CloneModel.busy;
+                            clicked => { CloneModel.save(); }
+                        }
+                    }
+                }
+            }
+
+            // ===== 状态栏 =====
+            Text {
+                text: CloneModel.status;
+                font-size: 12px;
+                color: text-secondary;
+                wrap: word-wrap;
+            }
+        }
+    }
+
+    // 保留 2 位小数(Slint 无 sprintf, 用整数四舍五入 + 字符串拼接)
+    pure public function fmt-1(v: float) -> string {
+        return "" + (round(v * 100) / 100);
+    }
+}
