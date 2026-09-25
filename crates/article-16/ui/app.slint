@@ -17,7 +17,6 @@ export global CloneModel {
     // --- 参考音频 ---
     in-out property <string> ref-name: "";
     in-out property <string> ref-info: "未选择参考音频(建议 5~15 秒干净人声)";
-    in-out property <string> ref-text: "";
     in-out property <bool> ref-ready: false;
 
     // --- 合成 ---
@@ -78,7 +77,7 @@ export component MainWindow inherits Window {
                     color: text-primary;
                 }
                 Text {
-                    text: "本地零样本 TTS · 3 秒参考音 → 任意文本";
+                    text: "本地零样本 TTS · 一段音频即可克隆(无需转写)";
                     font-size: 12px;
                     color: text-secondary;
                 }
@@ -175,20 +174,6 @@ export component MainWindow inherits Window {
                         wrap: word-wrap;
                     }
 
-                    // 参考音频的转写文本: G2P 对齐用, 必填
-                    Text {
-                        text: "参考音频说了什么(必填, 用于音素对齐)";
-                        font-size: 11px;
-                        color: CloneModel.ref-text == "" ? warn : text-secondary;
-                        wrap: word-wrap;
-                    }
-
-                    LineEdit {
-                        placeholder-text: "例如: 大家好, 我是叶魂。";
-                        text: CloneModel.ref-text;
-                        enabled: !CloneModel.busy;
-                        edited(t) => { CloneModel.ref-text = t; }
-                    }
                 }
             }
 

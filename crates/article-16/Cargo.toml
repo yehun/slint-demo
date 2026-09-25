@@ -3,7 +3,7 @@ name = "article-16"
 version = "0.1.0"
 edition = "2024"
 authors = ["yehun"]
-description = "第十六篇, Slint 语音克隆 —— 本地零样本 TTS (LuxTTS ONNX): 参考音频 + 转写 + 文本 → 48kHz 波形"
+description = "第十六篇, Slint 语音克隆 —— 本地零样本 TTS (LuxTTS / ZipVoice 蒸馏 flow-matching ONNX): 参考音频 + 文本 → 48kHz 波形(免转写)"
 build = "build.rs"
 
 [dependencies]
@@ -13,7 +13,7 @@ env_logger = "0.11"
 rodio = "0.20"
 anyhow = "1"
 parking_lot = "0.12"
-slint-lux-tts = { path = "../slint-lux-tts" }
+slint-tts = { path = "../slint-tts" }
 slint-file-picker = { path = "../slint-file-picker" }
 slint-fs = { path = "../slint-fs" }
 
@@ -35,7 +35,7 @@ name = "article_16"
 
 # ===== Android 构建配置 =====
 # 注意: Android 下 ort 不能 load-dynamic, 需要自备编译好的 libonnxruntime
-# (见 ../../slint-lux-tts/Cargo.toml 的 target 段说明)
+# (见 ../../slint-tts/Cargo.toml 的 target 段说明)
 [package.metadata.android]
 use_aapt2 = true
 use_gradle = true

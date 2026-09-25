@@ -31,7 +31,7 @@ help: ## 显示所有可用目标
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
 
 .PHONY: model
-model: ## 下载 LuxTTS 模型权重 (仓库不分发)
+model: ## 下载 LuxTTS(ZipVoice) 模型权重 (仓库不分发)
 	./scripts/fetch-model.sh
 
 .PHONY: check
@@ -61,8 +61,8 @@ build-macos: ## 交叉编译 macOS (需要 osxcross)
 .PHONY: cli
 cli: ## CLI 验证管线 (不启界面)
 	LUX_TTS_MODEL_DIR=$(HOME)/.local/share/slint-demo/models/lux-tts \
-		cargo run --release -p slint-lux-tts --example clone -- \
-		$(REF) "$(REF_TEXT)" "$(TEXT)" output/clone.wav --model int8
+		cargo run --release -p slint-tts --example clone -- \
+		$(REF) "$(TEXT)" output/clone.wav --model int8
 
 .PHONY: build-apk
 build-apk: ## 构建 debug APK (需自备 libonnxruntime)

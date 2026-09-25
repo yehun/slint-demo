@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use slint::{ComponentHandle, SharedString, Weak};
-use slint_lux_tts::LuxTTS;
+use slint_tts::LuxTTS;
 
 use crate::{CloneModel, MainWindow};
 
@@ -75,20 +75,9 @@ impl AppState {
         self.busy.load(Ordering::SeqCst)
     }
 
-    /// 参考音频就绪 = 选了文件 + 填了转写文本(音素对齐必须要文本)
+    /// 参考音频就绪 = 已选择音频文件(cross-lingual 模式不需要参考文本)
     pub fn refresh_ref_ready(&self) {
         let has_path = self.ref_path.lock().unwrap().is_some();
-        let has_text = !self.ref_text().is_empty();
-        self.ui(move |app| app.global::<CloneModel>().set_ref_ready(has_path && has_text));
-    }
-
-    fn ref_text(&self) -> String {
-        // UI 是唯一真源: 没有 weak 时按"无文本"处理, 只影响按钮可用性
-        self.weak
-            .lock()
-            .unwrap()
-            .upgrade()
-            .map(|app| app.global::<CloneModel>().get_ref_text().to_string())
-            .unwrap_or_default()
+        self.ui(move |app| app.global::<CloneModel>().set_ref_ready(has_path));
     }
 }

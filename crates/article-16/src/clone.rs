@@ -1,16 +1,17 @@
 // 第十六篇 — 模型加载 / 参考音频 / 合成 / 保存
 //
 // 全部耗时动作都在 std::thread 里跑:
-//   - 加载模型: 三个 ONNX(text_encoder / fm_decoder / vocos)灌进 ort, 最快也要好几秒
-//   - 合成:     text_encoder(时长预测) → fm_decoder(8 步流匹配 ODE) → vocos(声码器)
+//   - 加载模型: text_encoder / fm_decoder / vocos 三个 ONNX 灌进 ort, 最快也要好几秒
+//   - 合成:     文本 G2P → text_encoder → fm_decoder(锚点 ODE 流匹配) → vocos 双路声码器 → 48kHz
 // 完成后用 AppState::ui 把结果写回 Slint 属性。
+// 免转写: 只需参考音频(抽音色)+ 要合成的话, 无需参考文本。
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use slint::ComponentHandle;
 use slint_file_picker::{pick_file, FileFilter, PickResult};
-use slint_lux_tts::{GenOpts, LuxTTS};
+use slint_tts::{LuxTTS, GenOpts};
 
 use crate::state::AppState;
 use crate::{CloneModel, MainWindow};
@@ -19,28 +20,49 @@ use crate::{CloneModel, MainWindow};
 const THREADS: usize = 4;
 
 /// 模型目录发现顺序:
-///   1. 环境变量 LUX_TTS_MODEL_DIR
+///   1. 环境变量 LUX_TTS_MODEL_DIR / CLONE_TTS_MODEL_DIR
 ///   2. ~/.local/share/slint-demo/models/lux-tts
 ///   3. 工作目录下的 models/lux-tts
-/// 三个 ONNX 加起来几百 MB, 仓库不分发(见 scripts/fetch-model.sh)
+///   4. ~/.local/share/yehun-slint/models/lux-tts(旧位置, 兜底)
+/// 权重文件仓库不分发(见 scripts/fetch-model.sh)
 fn default_model_dir() -> Option<PathBuf> {
-    if let Ok(dir) = std::env::var("LUX_TTS_MODEL_DIR") {
-        let p = PathBuf::from(dir);
+    for var in ["LUX_TTS_MODEL_DIR", "CLONE_TTS_MODEL_DIR"] {
+        if let Ok(dir) = std::env::var(var) {
+            let p = PathBuf::from(dir);
+            if p.is_dir() {
+                return Some(p);
+            }
+        }
+    }
+    let home_models = std::env::var("HOME")
+        .ok()
+        .map(|h| PathBuf::from(h).join(".local/share/slint-demo/models/lux-tts"));
+    if let Some(p) = home_models {
         if p.is_dir() {
             return Some(p);
         }
     }
-    if let Ok(home) = std::env::var("HOME") {
-        let p = PathBuf::from(home).join(".local/share/slint-demo/models/lux-tts");
+    let local = PathBuf::from("models/lux-tts");
+    if local.is_dir() {
+        return Some(local);
+    }
+    let legacy = std::env::var("HOME")
+        .ok()
+        .map(|h| PathBuf::from(h).join(".local/share/yehun-slint/models/lux-tts"));
+    if let Some(p) = legacy {
         if p.is_dir() {
             return Some(p);
         }
-    }
-    let p = PathBuf::from("models/lux-tts");
-    if p.is_dir() {
-        return Some(p);
     }
     None
+}
+
+/// 加载 LuxTTS: 优先 int8(更小更快), 缺 int8 权重时回退 fp32。
+fn load_engine(dir: &Path, threads: usize) -> anyhow::Result<LuxTTS> {
+    match LuxTTS::load_precision(dir, threads, Some("int8")) {
+        Ok(e) => Ok(e),
+        Err(_) => LuxTTS::load(dir, threads),
+    }
 }
 
 pub fn bind(app: &MainWindow, state: Arc<AppState>) {
@@ -130,24 +152,40 @@ fn load_model(state: Arc<AppState>, dir: PathBuf) {
     });
 
     std::thread::spawn(move || {
-        let result = LuxTTS::load(&dir, THREADS).map(Arc::new);
+        let dir_disp = dir.display().to_string();
+        // 包一层 catch_unwind: ort 在找不到动态库时会直接 panic(而非返回 Err),
+        // 若直接崩溃在后台线程, UI 会永远停在"加载中"。这里把它转成可见的失败提示。
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            load_engine(&dir, THREADS).map(Arc::new)
+        }));
         match result {
-            Ok(engine) => {
+            Ok(Ok(engine)) => {
                 *state.engine.lock().unwrap() = Some(engine);
                 state.set_busy(false);
                 state.set_status("模型已就绪, 选一段参考音频吧");
                 state.ui(move |app| {
                     let m = app.global::<CloneModel>();
                     m.set_model_ready(true);
-                    m.set_model_status(format!("已加载: {}", dir.display()).into());
+                    m.set_model_status(format!("已加载: {dir_disp}").into());
                 });
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 state.set_busy(false);
                 state.set_status(format!("加载失败: {e}"));
                 state.ui(move |app| {
                     app.global::<CloneModel>()
                         .set_model_status(format!("加载失败: {e}").into());
+                });
+            }
+            Err(_) => {
+                state.set_busy(false);
+                state.set_status(
+                    "加载崩溃: 推理库初始化失败, 请确认已安装 onnxruntime 或设置 ORT_DYLIB_PATH",
+                );
+                state.ui(move |app| {
+                    app.global::<CloneModel>().set_model_status(
+                        "加载崩溃: 未找到 onnxruntime 动态库(onnxruntime.so), 请安装后重试".into(),
+                    );
                 });
             }
         }
@@ -176,7 +214,7 @@ fn pick_reference(state: Arc<AppState>) {
 
 fn apply_reference(state: Arc<AppState>, path: PathBuf) {
     // 读时长/采样率只为给 UI 一句提示(真正的 mel 在合成时才算)
-    let info = match slint_lux_tts::decode_file(&path) {
+    let info = match slint_tts::decode_file(&path) {
         Ok((samples, sr)) => {
             let secs = samples.len() as f32 / sr as f32;
             format!("{secs:.1}s · {sr}Hz · {} 采样点", samples.len())
@@ -194,7 +232,7 @@ fn apply_reference(state: Arc<AppState>, path: PathBuf) {
         m.set_ref_name(name.into());
         m.set_ref_info(info.into());
     });
-    state.set_status("参考音频已选择, 记得填上它说的内容");
+    state.set_status("参考音频已选择, 直接写要合成的话(无需转写)");
     state.refresh_ref_ready();
 }
 
@@ -208,12 +246,11 @@ fn synthesize(state: Arc<AppState>) {
         return;
     };
 
-    // UI 上的输入(转写 / 文本 / 语速 / 步数)在事件循环里读一次, 之后全交给工作线程
-    let (ref_text, text, speed, steps) = match state.weak_upgrade() {
+    // UI 上的输入(文本 / 语速 / 步数)在事件循环里读一次, 之后全交给工作线程
+    let (text, speed, steps) = match state.weak_upgrade() {
         Some(app) => {
             let m = app.global::<CloneModel>();
             (
-                m.get_ref_text().to_string(),
                 m.get_synth_text().to_string(),
                 m.get_speed(),
                 m.get_steps(),
@@ -221,20 +258,16 @@ fn synthesize(state: Arc<AppState>) {
         }
         None => return,
     };
-    if ref_text.trim().is_empty() {
-        state.set_status("参考音频的转写文本是必填的(音素对齐要用)");
-        return;
-    }
     if text.trim().is_empty() {
         state.set_status("请输入要合成的文本");
         return;
     }
 
     state.set_busy(true);
-    state.set_status("合成中: 文本编码 → 流匹配 → 声码器…");
+    state.set_status("合成中: 文本编码 → 流匹配 ODE → 声码器…");
 
     std::thread::spawn(move || {
-        let result = run(&state, &dir, &ref_path, &ref_text, &text, speed, steps);
+        let result = run(&state, &dir, &ref_path, &text, speed, steps);
         match result {
             Ok(samples) => {
                 let secs = samples.len() as f32 / 48000.0;
@@ -262,7 +295,6 @@ fn run(
     state: &Arc<AppState>,
     dir: &Path,
     ref_path: &Path,
-    ref_text: &str,
     text: &str,
     speed: f32,
     steps: i32,
@@ -274,7 +306,18 @@ fn run(
             Some(e) => e.clone(),
             None => {
                 drop(guard);
-                let e = Arc::new(LuxTTS::load(dir, THREADS)?);
+                let loaded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    load_engine(dir, THREADS)
+                }));
+                let e = match loaded {
+                    Ok(Ok(tts)) => Arc::new(tts),
+                    Ok(Err(e)) => return Err(e),
+                    Err(_) => {
+                        return Err(anyhow::anyhow!(
+                            "模型推理库(onnxruntime)初始化失败, 请确认已安装 onnxruntime 或设置 ORT_DYLIB_PATH"
+                        ))
+                    }
+                };
                 *state.engine.lock().unwrap() = Some(e.clone());
                 state.ui(|app| app.global::<CloneModel>().set_model_ready(true));
                 e
@@ -282,7 +325,7 @@ fn run(
         }
     };
 
-    let prompt = engine.encode_prompt_file(ref_path, ref_text)?;
+    let prompt = engine.encode_prompt_file(ref_path)?;
     log::info!(
         "参考音频有效语音 {:.2}s, prompt {} 帧",
         prompt.speech_secs,
@@ -315,7 +358,7 @@ fn save(state: Arc<AppState>) {
             .unwrap_or(0)
     );
     let path = dir.join(name);
-    match slint_lux_tts::write_wav_48k(&path, &samples) {
+    match slint_tts::write_wav_48k(&path, &samples) {
         Ok(()) => state.set_status(format!("已保存: {}", path.display())),
         Err(e) => state.set_status(format!("保存失败: {e}")),
     }
