@@ -3,7 +3,7 @@ members = [
     "crates/slint-common",
     "crates/slint-fs",
     "crates/slint-file-picker",
-    "crates/slint-lux-tts",
+    "crates/slint-tts",
     "crates/article-02",
     "crates/article-03",
     "crates/article-04",

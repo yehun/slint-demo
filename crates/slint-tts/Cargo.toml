@@ -1,19 +1,20 @@
 [package]
-name = "slint-lux-tts"
+name = "slint-tts"
 version = "0.1.0"
 edition = "2024"
 authors = ["yehun"]
-description = "本地零样本语音克隆 —— LuxTTS 权重的纯 Rust ONNX 推理 (flow-matching 锚点 ODE + 双路 Vocos)"
+description = "本地零样本语音克隆 —— LuxTTS(ZipVoice 蒸馏 flow-matching) 纯 Rust ONNX 推理: 参考音频 + 文本 → 48kHz 波形(无需参考文本转写)"
 
 [dependencies]
 anyhow = "1"
 log = "0.4"
 hound = "3.5"
 claxon = "0.4"
-# 兜底解码 mp3/aac/ogg 等压缩格式的参考音频
-symphonia = { version = "0.5", features = ["mp3", "aac", "ogg", "flac", "wav"] }
+# 兜底解码 mp3/aac/m4a/ogg 等压缩格式的参考音频(纯 Rust)
+symphonia = { version = "0.5", features = ["all"] }
 jieba-rs = "0.7"
 rustfft = "6"
+num-complex = "0.4"
 ndarray = "0.17"
 
 # 桌面端: load-dynamic 运行期加载 libonnxruntime(编译期不链接, 需要系统装 onnxruntime
@@ -34,3 +35,6 @@ ort = { version = "=2.0.0-rc.13", default-features = false, features = [
 
 [dev-dependencies]
 env_logger = "0.11"
+
+[[example]]
+name = "clone"

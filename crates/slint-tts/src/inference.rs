@@ -316,41 +316,9 @@ fn find_ort_library_path() -> Option<std::path::PathBuf> {
     }
     dirs.push(std::path::PathBuf::from("./lib"));
     dirs.push(std::path::PathBuf::from("./"));
-    // Linux 发行版通常把带版本号的库装进系统目录(libonnxruntime.so.1.21.0),
-    // 无版本的 libonnxruntime.so 软链不一定存在, 所以系统目录也要扫。
-    for d in [
-        "/usr/lib/x86_64-linux-gnu",
-        "/usr/lib/aarch64-linux-gnu",
-        "/usr/local/lib",
-        "/usr/lib",
-    ] {
-        dirs.push(std::path::PathBuf::from(d));
-    }
-    // 第一轮: 精确文件名
-    for dir in &dirs {
+    for dir in dirs {
         let p = dir.join(name);
         if p.exists() {
-            return Some(p);
-        }
-    }
-    // 第二轮: 同目录里按前缀找带版本号的库(取排最后的, 通常版本最高)。
-    // 前缀必须带扩展名, 否则会误命中 libonnxruntime_providers_shared.so(它不导出 OrtGetApiBase)。
-    let stem = name;
-    for dir in &dirs {
-        let Ok(entries) = std::fs::read_dir(dir) else {
-            continue;
-        };
-        let mut hits: Vec<std::path::PathBuf> = entries
-            .filter_map(|e| e.ok())
-            .map(|e| e.path())
-            .filter(|p| {
-                p.file_name()
-                    .and_then(|f| f.to_str())
-                    .is_some_and(|f| f.starts_with(stem))
-            })
-            .collect();
-        hits.sort();
-        if let Some(p) = hits.pop() {
             return Some(p);
         }
     }
@@ -401,7 +369,7 @@ impl LuxTTS {
         Ok(Self { sessions, tokenizer, feat_dim: mel::N_MELS })
     }
 
-    /// 参考音频 → prompt(24kHz 单声道采样序列 + 转写文本;超 15s 截断)。
+    /// 参考音频 → prompt(24kHz 单声道采样序列;超 15s 截断)。免转写: prompt 只含参考音频的 mel, 不含任何文本 token。
     ///
     /// ⚠️ **绝不要裁剪参考音频**。这里必须与 Python 参考实现
     /// `encode_prompt(duration=15.0)` 保持一致(超长只截前 15s)。
@@ -417,7 +385,6 @@ impl LuxTTS {
         &self,
         samples: &[f32],
         sample_rate: u32,
-        transcript: &str,
     ) -> Result<Prompt> {
         let mono = if sample_rate == mel::SAMPLE_RATE {
             samples.to_vec()
@@ -453,17 +420,21 @@ impl LuxTTS {
         let rms = audio::rms_norm(&mut buf, TARGET_RMS_PROMPT);
         let features = mel::extract(&buf);
         let features_len = features.len() as i64;
-        let tokens = self.tokenizer.text_to_ids(transcript);
+        // 免转写(无参考文本): 按参考音频时长估算字数, 填等长中性空格 token(只给长度线索, 不给内容)。
+        // 音色条件来自参考音频的 mel(speech_condition), 与文本无关, 故无需转写也能保住音色。
+        // 中文自然语速约 5 字/秒, 每字 ~2 token(与 split_text_segments 的估算口径一致)。
+        let n = ((speech_secs * 5.0).max(1.0) as usize) * 2;
+        let tokens = vec![3i64; n]; // token 3 == 空格(中性)
         if tokens.is_empty() {
-            bail!("参考文本未产生任何 token(请检查转写文本)");
+            bail!("参考音频过短, 无法估算占位 token 长度");
         }
         Ok(Prompt { tokens, features, features_len, rms, speech_secs })
     }
 
     /// 从文件直接构建 prompt(与 [`Self::encode_prompt`] 同一条路径)
-    pub fn encode_prompt_file(&self, path: &Path, transcript: &str) -> Result<Prompt> {
+    pub fn encode_prompt_file(&self, path: &Path) -> Result<Prompt> {
         let (samples, sr) = audio::decode_file(path)?;
-        self.encode_prompt(&samples, sr, transcript)
+        self.encode_prompt(&samples, sr)
     }
 
     /// 合成(48kHz f32, 已 clamp 与音量匹配)
@@ -568,7 +539,10 @@ fn split_text_segments(text: &str, max_tokens: usize) -> Vec<String> {
                 .get(1)
                 .map(|f| (*f as usize).saturating_sub(prompt_t))
                 .unwrap_or(0) as f32;
-            if ids.len() >= 3 && gen_pred < 0.75 * target {
+            // 免转写(placeholder)模式下时长预测偏短, 需要更宽松的触发阈值才能补偿;
+            // 固定 0.95(比默认 0.75 更激进地触发语速搜索, 补齐因时长预测偏短而丢失的字)。
+            let trigger: f32 = 0.95;
+            if ids.len() >= 3 && gen_pred < trigger * target {
                 let (mut lo, mut hi) = (0.2f32, base_speed);
                 // best = (与目标的差, 预测生成帧数, 权重数据, speed)。
                 // 带上 gen_f 是为了下面的"够长优先"判定。
@@ -579,7 +553,7 @@ fn split_text_segments(text: &str, max_tokens: usize) -> Vec<String> {
                     base_speed,
                 ));
                 // "够长"门槛:低于它就说明这段文本会被挤着读完(语速过快、尾巴丢字)
-                let enough = 0.75 * target;
+                let enough = trigger * target;
                 for _ in 0..4 {
                     let s = ((lo + hi) / 2.0).clamp(0.2, base_speed);
                     let (shape, data) = self.run_text_encoder(ids, prompt, s)?;

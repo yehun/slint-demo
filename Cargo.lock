@@ -570,7 +570,7 @@ dependencies = [
  "slint-build",
  "slint-file-picker",
  "slint-fs",
- "slint-lux-tts",
+ "slint-tts",
 ]
 
 [[package]]
@@ -6025,7 +6025,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "slint-lux-tts"
+name = "slint-macros"
+version = "1.18.0"
+source = "git+https://github.com/slint-ui/slint.git?branch=master#49f0f64f2a0c706aec39f22b91be56a5dfe4c0c4"
+dependencies = [
+ "i-slint-compiler",
+ "proc-macro2",
+ "quote",
+ "spin_on",
+]
+
+[[package]]
+name = "slint-tts"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -6035,20 +6046,10 @@ dependencies = [
  "jieba-rs",
  "log",
  "ndarray",
+ "num-complex",
  "ort",
  "rustfft",
  "symphonia",
-]
-
-[[package]]
-name = "slint-macros"
-version = "1.18.0"
-source = "git+https://github.com/slint-ui/slint.git?branch=master#49f0f64f2a0c706aec39f22b91be56a5dfe4c0c4"
-dependencies = [
- "i-slint-compiler",
- "proc-macro2",
- "quote",
- "spin_on",
 ]
 
 [[package]]
@@ -6260,9 +6261,12 @@ dependencies = [
  "symphonia-bundle-mp3",
  "symphonia-codec-aac",
  "symphonia-codec-adpcm",
+ "symphonia-codec-alac",
  "symphonia-codec-pcm",
  "symphonia-codec-vorbis",
  "symphonia-core",
+ "symphonia-format-caf",
+ "symphonia-format-isomp4",
  "symphonia-format-mkv",
  "symphonia-format-ogg",
  "symphonia-format-riff",
@@ -6315,6 +6319,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "symphonia-codec-alac"
+version = "0.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8413fa754942ac16a73634c9dfd1500ed5c61430956b33728567f667fdd393ab"
+dependencies = [
+ "log",
+ "symphonia-core",
+]
+
+[[package]]
 name = "symphonia-codec-pcm"
 version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6346,6 +6360,30 @@ dependencies = [
  "bytemuck",
  "lazy_static",
  "log",
+]
+
+[[package]]
+name = "symphonia-format-caf"
+version = "0.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b8faf379316b6b6e6bbc274d00e7a592e0d63ff1a7e182ce8ba25e24edd3d096"
+dependencies = [
+ "log",
+ "symphonia-core",
+ "symphonia-metadata",
+]
+
+[[package]]
+name = "symphonia-format-isomp4"
+version = "0.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "243739585d11f81daf8dac8d9f3d18cc7898f6c09a259675fc364b382c30e0a5"
+dependencies = [
+ "encoding_rs",
+ "log",
+ "symphonia-core",
+ "symphonia-metadata",
+ "symphonia-utils-xiph",
 ]
 
 [[package]]
