@@ -34,6 +34,16 @@ fn default_model_dir() -> Option<PathBuf> {
             }
         }
     }
+    // 可执行文件旁边的 models 目录(打包发布场景: <exe_dir>/models/lux-tts 或 <exe_dir>/models)
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            for cand in [dir.join("models/lux-tts"), dir.join("models")] {
+                if cand.is_dir() {
+                    return Some(cand);
+                }
+            }
+        }
+    }
     let home_models = std::env::var("HOME")
         .ok()
         .map(|h| PathBuf::from(h).join(".local/share/slint-demo/models/lux-tts"));

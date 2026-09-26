@@ -264,7 +264,7 @@ pub struct LuxTTS {
     feat_dim: usize,
 }
 
-/// 桌面端 onnxruntime 动态库探测(ORT_DYLIB_PATH / exe 目录 / ./lib), Android 编译期链接跳过。
+/// 桌面端 onnxruntime 动态库探测(ORT_DYLIB_PATH / exe 目录 / exe 目录/lib、/libs / ./lib、./libs), Android 编译期链接跳过。
 ///
 /// 只初始化一次:ort 的 init 是可重入的,但**失败**会每次都重新探测一遍路径
 /// 并重复报错(加载大模型时这条错误会刷屏)。语音识别插件与它同进程时也可能
@@ -312,9 +312,11 @@ fn find_ort_library_path() -> Option<std::path::PathBuf> {
         if let Some(dir) = exe.parent() {
             dirs.push(dir.to_path_buf());
             dirs.push(dir.join("lib"));
+            dirs.push(dir.join("libs"));
         }
     }
     dirs.push(std::path::PathBuf::from("./lib"));
+    dirs.push(std::path::PathBuf::from("./libs"));
     dirs.push(std::path::PathBuf::from("./"));
     for dir in dirs {
         let p = dir.join(name);
