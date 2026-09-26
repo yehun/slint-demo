@@ -79,7 +79,10 @@ crates/slint-tts/           # 推理库（LuxTTS / ZipVoice 蒸馏 flow-matching
 2. **波形留在内存**。合成结果是 `Vec<f32>`，rodio 的 `SamplesBuffer` 直接吃，
    保存时才编码 WAV。
 3. **模型不进仓库**。几百 MB 的 ONNX 走 `scripts/fetch-model.sh` 单独下载，
-   `LUX_TTS_MODEL_DIR` 指路，界面上也能手动选。
+   运行时模型目录搜索顺序：`LUX_TTS_MODEL_DIR`/`CLONE_TTS_MODEL_DIR` 环境变量 →
+   可执行文件旁 `models/lux-tts`、`models` → `~/.local/share/slint-demo/models/lux-tts` →
+   `./models/lux-tts` → 旧路径 `~/.local/share/yehun-slint/models/lux-tts`；界面上也能手动选。
+   onnxruntime 动态库搜索顺序：`ORT_DYLIB_PATH` → 可执行文件旁 `lib`、`libs` → `./lib`、`./libs`。
 
 ## Android
 
