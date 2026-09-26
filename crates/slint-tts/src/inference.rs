@@ -318,6 +318,11 @@ fn find_ort_library_path() -> Option<std::path::PathBuf> {
     dirs.push(std::path::PathBuf::from("./lib"));
     dirs.push(std::path::PathBuf::from("./libs"));
     dirs.push(std::path::PathBuf::from("./"));
+    // 开发机约定: 自编译的 libonnxruntime.so 放在 ~/.local/lib (干净自包含, 避免系统 1.21 的
+    // 退出 139 / schema 刷屏问题)。`make run-linux` 从这里启动二进制也能直接命中, 无需设 ORT_DYLIB_PATH。
+    if let Ok(home) = std::env::var("HOME") {
+        dirs.push(std::path::PathBuf::from(home).join(".local/lib"));
+    }
     for dir in dirs {
         let p = dir.join(name);
         if p.exists() {
@@ -809,6 +814,23 @@ fn split_text_segments(text: &str, max_tokens: usize) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `make run-linux`(及任意开发机启动)应能从 ~/.local/lib 命中自编译的 libonnxruntime.so,
+    /// 无需手动设 ORT_DYLIB_PATH。验证发现顺序在开发环境下可达。
+    #[cfg(not(target_os = "android"))]
+    #[test]
+    fn discovers_ort_in_home_local_lib() {
+        let found = find_ort_library_path().expect("未找到 libonnxruntime, 检查 ~/.local/lib");
+        assert!(
+            found.ends_with("libonnxruntime.so"),
+            "发现的不是 libonnxruntime.so: {found:?}"
+        );
+        assert!(
+            found.starts_with(std::path::Path::new(&std::env::var("HOME").unwrap()).join(".local/lib")),
+            "开发机应优先 ~/.local/lib 的干净自包含构建, 而非系统 1.21: {found:?}"
+        );
+        assert!(found.exists(), "发现路径不存在: {found:?}");
+    }
 
     /// 确定性"类语音"信号:能量均匀,不含静音
     fn speech(n: usize) -> Vec<f32> {

@@ -82,7 +82,9 @@ crates/slint-tts/           # 推理库（LuxTTS / ZipVoice 蒸馏 flow-matching
    运行时模型目录搜索顺序：`LUX_TTS_MODEL_DIR`/`CLONE_TTS_MODEL_DIR` 环境变量 →
    可执行文件旁 `models/lux-tts`、`models` → `~/.local/share/slint-demo/models/lux-tts` →
    `./models/lux-tts` → 旧路径 `~/.local/share/yehun-slint/models/lux-tts`；界面上也能手动选。
-   onnxruntime 动态库搜索顺序：`ORT_DYLIB_PATH` → 可执行文件旁 `lib`、`libs` → `./lib`、`./libs`。
+   onnxruntime 动态库搜索顺序：`ORT_DYLIB_PATH` → 可执行文件旁 `lib`、`libs` → `./lib`、`./libs` →
+   `~/.local/lib`（开发机自编译的干净自包含构建，避开系统 1.21 的退出 139/schema 刷屏问题）。
+   `make run-linux` 从 `crates/article-16/` 启动二进制即走此开发机约定，无需手动设 `ORT_DYLIB_PATH`。
 
 ## Android
 
