@@ -1,9 +1,12 @@
 // 第十六篇 — 播放合成结果
 //
-// 合成结果是 Rust 侧的 Vec<f32>(48kHz 单声道), 不落盘也能播:
-// rodio 的 SamplesBuffer 直接把采样序列当 Source, 连 WAV 编码这一趟都省了。
+// 合成结果是 Rust 侧的 Vec<f32>(48kHz 单声道)。播放时把它按与 write_wav_48k 完全相同的
+// 方式量化成 i16 PCM, 再用 rodio 的 SamplesBuffer<i16> 播放 —— 这条 i16 路径和外部播放器
+// 打开 .wav(同样是 i16 PCM16)走的是一致的格式协商, 避免直接用 SamplesBuffer<f32> 在部分
+// ALSA/PipeWire 环境下"有数据但设备不出声"的坑。
 //
-// Sink/OutputStream 非 Send, 跟第十三篇一样用 thread_local 锁在主线程。
+// OutputStream/Sink 非 Send(cpal stream 绑定创建线程), 用 thread_local 钉在主线程。
+// 播放线程由 Sink 内部托管, 只要 OutputStream 还活着(主线程 thread_local 持有)就能出声。
 
 use std::cell::RefCell;
 use std::sync::Arc;
@@ -45,21 +48,34 @@ pub fn bind(app: &MainWindow, state: Arc<AppState>) {
     });
 }
 
+/// f32 → i16 PCM, 与 audio::write_wav_48k 完全一致(峰值裁剪到 [-1,1])
+fn to_pcm16(samples: &[f32]) -> Vec<i16> {
+    samples
+        .iter()
+        .map(|&s| (s.clamp(-1.0, 1.0) * 32767.0).round() as i16)
+        .collect()
+}
+
 fn play_samples(samples: &[f32]) -> Result<f32, String> {
-    SINK.with(|cell| {
+    let pcm = to_pcm16(samples);
+    SINK.with(|cell| -> Result<(), String> {
         if cell.borrow().is_none() {
-            let (stream, handle) =
-                OutputStream::try_default().map_err(|e| format!("初始化音频输出失败: {e}"))?;
+            let (stream, handle) = OutputStream::try_default().map_err(|e| {
+                format!("初始化音频输出失败: {e}（请确认默认音频设备可用 / 已安装 alsa 或 pulseaudio）")
+            })?;
             let sink = Sink::try_new(&handle).map_err(|e| format!("创建播放器失败: {e}"))?;
+            sink.set_volume(1.0);
             STREAM.with(|st| *st.borrow_mut() = Some(stream));
             *cell.borrow_mut() = Some(sink);
         }
         let borrow = cell.borrow();
         let sink = borrow.as_ref().unwrap();
         sink.clear();
-        sink.append(SamplesBuffer::new(1, SAMPLE_RATE, samples.to_vec()));
-        Ok(samples.len() as f32 / SAMPLE_RATE as f32)
-    })
+        sink.append(SamplesBuffer::new(1, SAMPLE_RATE, pcm));
+        sink.play(); // 防御性: 确保处于播放态
+        Ok(())
+    })?;
+    Ok(samples.len() as f32 / SAMPLE_RATE as f32)
 }
 
 /// 播放时长已知: 睡到点再把 playing 置回 false(代数不匹配说明用户已经又播了一次)

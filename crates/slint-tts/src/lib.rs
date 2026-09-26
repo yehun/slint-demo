@@ -17,6 +17,6 @@ pub mod randn;
 pub mod tokenizer;
 pub mod vocoder;
 
-pub use audio::{decode_file, write_wav_48k};
+pub use audio::{decode_file, encode_wav_bytes, write_wav_48k};
 pub use inference::{GenOpts, LuxTTS, Prompt};
 pub use tokenizer::Tokenizer;
