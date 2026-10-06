@@ -1,0 +1,333 @@
+// 第十七篇, Slint OCR 文字识别
+// UI — 深色卡片式: 模型状态 / 图片选择 / 识别 / 检测框叠加预览 + 识别文本
+// 布局: 顶部标题与控件, 下方左右分栏(左=图片预览, 右=识别结果列表)
+//
+// 核心模式:
+// 1. 所有耗时动作(加载模型、识别)都在 Rust 工作线程里跑, UI 只读写 OcrModel 属性
+// 2. Slint 主线程不碰模型: 回调触发线程, 线程用 invoke_from_event_loop 回写属性
+// 3. 识别结果(检测框 + 文本)留在 Rust 侧, 预览图由 Rust 画好框后整张喂给 Image 元素
+
+import "../../../assets/fonts/MiSans-Normal.ttf";
+import { Button, ScrollView } from "std-widgets.slint";
+
+// 逐行识别结果(用于列表化展示, 比单块文本更易读)
+export struct OcrLineItem {
+    index: int,
+    text: string,
+    confidence: float, // 0..1
+}
+
+export global OcrModel {
+    // --- 模型 ---
+    in-out property <string> model-status: "模型未加载";
+    in-out property <bool> model-ready: false;
+
+    // --- 图片 ---
+    in-out property <string> image-name: "";
+    in-out property <bool> image-ready: false;
+    in-out property <image> preview;
+
+    // --- 结果 ---
+    in-out property <string> result-text: "尚无识别结果";
+    in-out property <[OcrLineItem]> result-lines: [];
+    in-out property <int> det-ms: 0;
+    in-out property <int> rec-ms: 0;
+    in-out property <int> total-ms: 0;
+    in-out property <bool> has-result: false;
+
+    // --- 状态 ---
+    in-out property <string> status: "请先加载模型";
+    in-out property <bool> busy: false;
+
+    callback load-model();
+    callback pick-image();
+    callback recognize();
+    callback save-text();
+}
+
+export component MainWindow inherits Window {
+    // ===== 主题色(与第十六篇同一套深色) =====
+    property <color> bg-dark: #121212;
+    property <color> bg-card: #1e1e1e;
+    property <color> border: #2f2f2f;
+    property <color> accent: #bb86fc;
+    property <color> accent-dim: #3700b3;
+    property <color> text-primary: #e8e8e8;
+    property <color> text-secondary: #9a9a9a;
+    property <color> warn: #ffb74d;
+    property <color> box-color: #ff5252;
+
+    title: "第十七篇, Slint OCR 文字识别";
+    background: bg-dark;
+    default-font-family: "MiSans";
+    min-width: 440px;
+    min-height: 560px;
+    preferred-width: 780px;
+    preferred-height: 640px;
+
+    property <length> card-pad: 12px;
+
+    VerticalLayout {
+        padding: 16px;
+        spacing: 12px;
+
+        // ===== 标题 =====
+        VerticalLayout {
+            spacing: 4px;
+            Text {
+                text: "OCR 文字识别 · PP-OCRv4";
+                font-size: 22px;
+                font-weight: 700;
+                color: text-primary;
+            }
+            Text {
+                text: "本地 onnxruntime 推理 · 检测/方向分类/识别 三件套, 不上传任何图片";
+                font-size: 12px;
+                color: text-secondary;
+            }
+        }
+
+        // ===== 模型卡片 =====
+        Rectangle {
+            background: bg-card;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: border;
+            VerticalLayout {
+                padding: card-pad;
+                spacing: 8px;
+                HorizontalLayout {
+                    alignment: space-between;
+                    Text {
+                        text: "① 模型";
+                        font-size: 14px;
+                        font-weight: 600;
+                        color: accent;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        text: OcrModel.model-ready ? "已就绪" : "未加载";
+                        font-size: 12px;
+                        color: OcrModel.model-ready ? #81c784 : text-secondary;
+                        vertical-alignment: center;
+                    }
+                }
+                Text {
+                    text: OcrModel.model-status;
+                    font-size: 11px;
+                    color: text-secondary;
+                    wrap: word-wrap;
+                }
+                Button {
+                    text: OcrModel.model-ready ? "重新加载模型" : "加载模型";
+                    enabled: !OcrModel.busy;
+                    clicked => { OcrModel.load-model(); }
+                }
+            }
+        }
+
+        // ===== 识别按钮 =====
+        Button {
+            text: OcrModel.busy ? "识别中…" : "③ 开始识别";
+            enabled: OcrModel.model-ready && OcrModel.image-ready && !OcrModel.busy;
+            clicked => { OcrModel.recognize(); }
+        }
+
+        // ===== 左右分栏: 左=图片预览, 右=识别结果 =====
+        HorizontalLayout {
+            spacing: 12px;
+            vertical-stretch: 1;
+
+            // 左: 图片预览
+            Rectangle {
+                background: bg-card;
+                border-radius: 12px;
+                border-width: 1px;
+                border-color: border;
+                horizontal-stretch: 1;
+                VerticalLayout {
+                    padding: card-pad;
+                    spacing: 8px;
+                    HorizontalLayout {
+                        alignment: space-between;
+                        Text {
+                            text: "图片预览";
+                            font-size: 14px;
+                            font-weight: 600;
+                            color: accent;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: OcrModel.image-ready ? "已选择" : "待选择";
+                            font-size: 12px;
+                            color: OcrModel.image-ready ? #81c784 : text-secondary;
+                            vertical-alignment: center;
+                        }
+                    }
+                    Button {
+                        text: "选择图片文件";
+                        enabled: !OcrModel.busy;
+                        clicked => { OcrModel.pick-image(); }
+                    }
+                    Text {
+                        text: OcrModel.image-name;
+                        font-size: 11px;
+                        color: text-primary;
+                        wrap: word-wrap;
+                    }
+                    Rectangle {
+                        border-radius: 8px;
+                        background: #0d0d0d;
+                        clip: true;
+                        vertical-stretch: 1;
+                        min-height: 0;
+                        Image {
+                            source: OcrModel.preview;
+                            width: parent.width;
+                            height: parent.height;
+                            image-fit: contain;
+                        }
+                        Text {
+                            text: "选择一张含文字的图片, 框会画在这里";
+                            color: text-secondary;
+                            font-size: 12px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                            visible: !OcrModel.image-ready;
+                        }
+                    }
+                }
+            }
+
+            // 右: 识别结果
+            Rectangle {
+                background: bg-card;
+                border-radius: 12px;
+                border-width: 1px;
+                border-color: border;
+                horizontal-stretch: 1;
+                VerticalLayout {
+                    padding: card-pad;
+                    spacing: 8px;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: center;
+                        Text {
+                            text: "④ 识别结果";
+                            font-size: 14px;
+                            font-weight: 600;
+                            color: accent;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: OcrModel.has-result ? (OcrModel.result-lines.length + " 行文字") : "";
+                            font-size: 12px;
+                            color: text-secondary;
+                            vertical-alignment: center;
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 14px;
+                        Text {
+                            text: "检测 " + OcrModel.det-ms + "ms";
+                            font-size: 11px;
+                            color: text-secondary;
+                        }
+                        Text {
+                            text: "识别 " + OcrModel.rec-ms + "ms";
+                            font-size: 11px;
+                            color: text-secondary;
+                        }
+                        Text {
+                            text: "总 " + OcrModel.total-ms + "ms";
+                            font-size: 11px;
+                            color: text-secondary;
+                        }
+                    }
+                    Rectangle {
+                        border-radius: 8px;
+                        background: #0d0d0d;
+                        clip: true;
+                        vertical-stretch: 1;
+                        min-height: 0;
+                        ScrollView {
+                            width: 100%;
+                            height: 100%;
+                            VerticalLayout {
+                                spacing: 6px;
+                                padding: 6px;
+                                for line in OcrModel.result-lines: Rectangle {
+                                    background: (Math.mod(line.index, 2) == 0) ? #171717 : #1d1d1d;
+                                    border-radius: 6px;
+                                    min-height: 48px;
+                                    HorizontalLayout {
+                                        spacing: 10px;
+                                        padding: 8px;
+                                        alignment: center;
+                                        Text {
+                                            text: "#" + line.index;
+                                            color: accent;
+                                            font-size: 12px;
+                                            width: 26px;
+                                            vertical-alignment: center;
+                                        }
+                                        VerticalLayout {
+                                            spacing: 5px;
+                                            Text {
+                                                text: line.text;
+                                                color: text-primary;
+                                                font-size: 13px;
+                                                wrap: word-wrap;
+                                            }
+                                            Rectangle {
+                                                height: 4px;
+                                                border-radius: 2px;
+                                                background: #2f2f2f;
+                                                Rectangle {
+                                                    height: parent.height;
+                                                    border-radius: 2px;
+                                                    width: parent.width * line.confidence;
+                                                    background: line.confidence > 0.9 ? #81c784 : (line.confidence > 0.7 ? #ffb74d : #ff5252);
+                                                }
+                                            }
+                                        }
+                                        Text {
+                                            text: (line.confidence * 100) + "%";
+                                            color: line.confidence > 0.9 ? #81c784 : (line.confidence > 0.7 ? #ffb74d : #ff5252);
+                                            font-size: 11px;
+                                            width: 42px;
+                                            horizontal-alignment: right;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        // 空状态提示
+                        Text {
+                            text: "识别完成后, 逐行结果会显示在这里";
+                            color: text-secondary;
+                            font-size: 12px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                            visible: OcrModel.result-lines.length == 0;
+                        }
+                    }
+                    Button {
+                        text: "保存文本";
+                        enabled: OcrModel.has-result && !OcrModel.busy;
+                        clicked => { OcrModel.save-text(); }
+                    }
+                }
+            }
+        }
+
+        // ===== 状态栏 =====
+        Text {
+            text: OcrModel.status;
+            font-size: 12px;
+            color: text-secondary;
+            wrap: word-wrap;
+        }
+    }
+}
