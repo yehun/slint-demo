@@ -1,0 +1,30 @@
+[package]
+name = "slint-ocr"
+version = "0.1.0"
+edition = "2024"
+authors = ["yehun"]
+description = "本地 OCR 引擎: onnxruntime + PaddleOCR PP-OCRv4 (det/cls/rec), 跨 Linux/Windows/macOS/Android"
+
+[dependencies]
+anyhow = "1"
+log = "0.4"
+parking_lot = "0.12"
+ndarray = "0.17"
+# 图像解码(含 jpeg/png/gif/bmp)与像素操作
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "bmp"] }
+
+# 桌面端: load-dynamic 运行期加载 libonnxruntime(编译期不链接, 需要系统装 onnxruntime
+# 或设置 ORT_DYLIB_PATH)。Android 见下方 target 段。
+ort = { version = "=2.0.0-rc.13", default-features = false, features = [
+    "std",
+    "ndarray",
+    "load-dynamic",
+] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+# Android: bionic 的 dlsym 解析不了版本化符号, load-dynamic 不可用, 必须编译期链接。
+# 需要 build.rs 指向预编译的 libonnxruntime.a/so(本仓库不携带, 交叉编译时自行接入)。
+ort = { version = "=2.0.0-rc.13", default-features = false, features = [
+    "std",
+    "ndarray",
+] }
