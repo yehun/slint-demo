@@ -4,6 +4,7 @@ members = [
     "crates/slint-fs",
     "crates/slint-file-picker",
     "crates/slint-tts",
+    "crates/slint-ocr",
     "crates/article-02",
     "crates/article-03",
     "crates/article-04",
@@ -19,6 +20,7 @@ members = [
     "crates/article-14",
     "crates/article-15",
     "crates/article-16",
+    "crates/article-17",
 ]
 resolver = "2"
 

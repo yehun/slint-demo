@@ -574,6 +574,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "article-17"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "env_logger",
+ "image",
+ "log",
+ "parking_lot",
+ "slint",
+ "slint-build",
+ "slint-file-picker",
+ "slint-fs",
+ "slint-ocr",
+]
+
+[[package]]
 name = "as-raw-xcb-connection"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6033,6 +6049,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "spin_on",
+]
+
+[[package]]
+name = "slint-ocr"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "image",
+ "log",
+ "ndarray",
+ "ort",
+ "parking_lot",
 ]
 
 [[package]]
