@@ -59,7 +59,7 @@ resizeable_activity = false
 always_retain_task_state = true
 
 [[package.metadata.android.application.activity.intent_filter]]
-actions = ["android.app.action.MAIN"]
+actions = ["android.intent.action.MAIN"]
 categories = ["android.intent.category.LAUNCHER"]
 
 [[package.metadata.android.application.activity.meta_data]]
