@@ -1,0 +1,401 @@
+// 第十八篇, Slint 地图显示
+//
+// UI — 全幅瓦片地图(Flickable)+ 右侧控制列(放大/缩小/回中)+ 底部信息卡(读数)
+// + 落点标记 + 高德署名(GCJ-02)。交互逻辑(平移/滚轮缩放/点击落点/回中)在 map.rs。
+//
+// 核心模式:
+// 1. 瓦片 Image 直接铺在 Flickable 的内容坐标(=世界像素)上, 拖动即平移, 随图滚动
+// 2. 缩放为整级跳变(栅格瓦片无连续级), 锚点处的地理坐标缩放前后不动
+// 3. 标记/读数都来自 Rust 侧反投影, 不在这里算经纬度
+
+import "../../../assets/fonts/MiSans-Normal.ttf";
+
+// 一块瓦片: 内容坐标(世界像素) + 图
+export struct MapTile {
+    x: length,
+    y: length,
+    // 显示尺寸 = 256px * 2^(当前级-瓦片级): 换级瞬间旧级瓦片缩放着垫底
+    w: length,
+    tile: image,
+}
+
+// 地图状态(下行由 Rust 写, 上行回调由 Rust 监听)
+export global MapModel {
+    // 当前可见瓦片
+    in property <[MapTile]> tiles;
+    // 缩放级(1–18)
+    in-out property <float> zoom: 3.0;
+    in-out property <string> zoom-text: "3";
+    // 落点标记
+    in-out property <bool> has-marker: false;
+    // 标记世界像素(Flickable 内容坐标, 随图滚动)
+    in property <length> marker-x: 0px;
+    in property <length> marker-y: 0px;
+    // 读数
+    in-out property <string> center-lat: "0.00000";
+    in-out property <string> center-lon: "0.00000";
+    // 图形比例尺(右下横条): Rust 按 1-2-5 序列算好条长与标签
+    in property <length> scale-bar-width: 80px;
+    in property <string> scale-bar-label: "";
+    in-out property <string> marker-lat: "-";
+    in-out property <string> marker-lon: "-";
+    in-out property <string> status: "初始化…";
+
+    // ---- 上行回调(Rust 监听) ----
+    callback flicked(length, length);     // 拖动结束: (content-x, content-y)
+    callback zoom-in(length, length);     // 滚轮放大: 锚点(视口坐标)
+    callback zoom-out(length, length);    // 滚轮缩小: 锚点(视口坐标)
+    callback zoom-in-center();            // 以视口中心放大(按钮)
+    callback zoom-out-center();           // 以视口中心缩小(按钮)
+    callback set-coordinate(length, length); // 点击落点: (世界像素 x, y)
+    callback recenter();                  // 回中到标记(按钮)
+    callback view-ready();                // 页面实例化(设初始视口)
+    callback toggle-satellite();          // 底图切换: 路网 ↔ 卫星
+    callback viewport-changed();          // 窗口尺寸变化: 更新视口补拉瓦片
+
+    // 底图状态: true=卫星底图(切换键显示图层图标), false=路网(显示地球图标)
+    in property <bool> is-satellite: false;
+
+    // 默认字体族: Android 软件渲染器没有跨字体族的字形回退, 系统回退链会挑到
+    // 覆盖不全的 CJK 字体(简体-only 的 缩/级/图/绪 变方块), 由 Rust 侧按平台指定。
+    in-out property <string> font-family: "";
+}
+
+// 圆角悬浮小按钮(放大/缩小/回中)
+// 定位(准星)图标: 圆环 + 四向刻度, 纯 Slint 基元绘制, 不依赖字体字形
+component LocateIcon inherits Rectangle {
+    width: 22px;
+    height: 22px;
+    background: transparent;
+
+    // 圆环
+    Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 12px;
+        height: 12px;
+        border-radius: self.width / 2;
+        background: transparent;
+        border-width: 2px;
+        border-color: #2b2b2b;
+    }
+    // 上 / 下 / 左 / 右 刻度
+    Rectangle { x: (parent.width - 2px) / 2; y: 0; width: 2px; height: 5px; background: #2b2b2b; }
+    Rectangle { x: (parent.width - 2px) / 2; y: parent.height - 5px; width: 2px; height: 5px; background: #2b2b2b; }
+    Rectangle { y: (parent.height - 2px) / 2; x: 0; width: 5px; height: 2px; background: #2b2b2b; }
+    Rectangle { y: (parent.height - 2px) / 2; x: parent.width - 5px; width: 5px; height: 2px; background: #2b2b2b; }
+}
+
+// Lucide 图标(layers / earth)转 Slint Path:
+// 官方 24×24 stroke=2 圆头描边; SVG 圆弧(A)指令 Slint 不支持,
+// 已用脚本把弧线转成三次贝塞尔(圆 = 4 段, 90° 弧 = 1 段, k≈0.5523)。
+// open-source license: ISC (lucide-static v1.52.0)
+component LucideLayers inherits Path {
+    in property <color> icon-color: #2b2b2b;
+    width: 22px;
+    height: 22px;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    commands: "M 12.83 2.18 C 12.303 1.94 11.697 1.94 11.17 2.18 L 2.6 6.08 C 2.237 6.24 2.003 6.599 2.003 6.995 C 2.003 7.391 2.237 7.75 2.6 7.91 L 11.18 11.82 C 11.707 12.06 12.313 12.06 12.84 11.82 L 21.42 7.92 C 21.783 7.76 22.017 7.401 22.017 7.005 C 22.017 6.609 21.783 6.25 21.42 6.09 Z M 2 12 C 1.999 12.391 2.226 12.746 2.58 12.91 L 11.18 16.82 C 11.704 17.057 12.306 17.057 12.83 16.82 L 21.41 12.92 C 21.772 12.757 22.003 12.397 22 12 M 2 17 C 1.999 17.391 2.226 17.746 2.58 17.91 L 11.18 21.82 C 11.704 22.057 12.306 22.057 12.83 21.82 L 21.41 17.92 C 21.772 17.757 22.003 17.397 22 17";
+    fill: transparent;
+    stroke: root.icon-color;
+    stroke-width: 2px;
+}
+
+component LucideEarth inherits Path {
+    in property <color> icon-color: #2b2b2b;
+    width: 22px;
+    height: 22px;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    commands: "M 22 12 C 22 17.523 17.523 22 12 22 C 6.477 22 2 17.523 2 12 C 2 6.477 6.477 2 12 2 C 17.523 2 22 6.477 22 12 Z M 21.54 15 L 17 15 C 15.895 15 15 15.895 15 17 L 15 21.54 M 7 3.34 L 7 5 C 7 6.657 8.343 8 10 8 C 11.105 8 12 8.895 12 10 C 12 11.1 12.9 12 14 12 C 15.105 12 16 11.105 16 10 C 16 8.9 16.9 8 18 8 L 21.17 8 M 11 21.95 L 11 18 C 11 16.895 10.105 16 9 16 C 7.895 16 7 15.105 7 14 L 7 13 C 7 11.895 6.105 11 5 11 L 2.05 11";
+    fill: transparent;
+    stroke: root.icon-color;
+    stroke-width: 2px;
+}
+
+component MapButton inherits Rectangle {
+    in property <string> label;
+    // 图标模式(与文字互斥): 定位准星 / 地球(切卫星) / 图层(切回路网)
+    in property <bool> locate-icon: false;
+    in property <bool> earth-icon: false;
+    in property <bool> layers-icon: false;
+    in-out property <color> bg: #ffffff;
+    callback clicked();
+
+    // 任一图标模式为真时隐藏文字
+    property <bool> has-icon: root.locate-icon || root.earth-icon || root.layers-icon;
+
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: root.bg;
+    border-width: 1px;
+    border-color: #00000022;
+
+    if root.locate-icon: LocateIcon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+    }
+    if root.earth-icon: LucideEarth {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+    }
+    if root.layers-icon: LucideLayers {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+    }
+    if !root.has-icon: Text {
+        text: root.label;
+        color: #2b2b2b;
+        font-size: 24px;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+export component MainWindow inherits Window {
+    title: "第十八篇 · Slint 地图显示";
+    min-width: 480px;
+    min-height: 480px;
+    // 瓦片未到位时的底色(低饱和灰蓝)
+    background: #dfe4e8;
+    // 空串 = Slint 默认字体族; Android 上由 Rust 填设备 CJK 字体族名
+    default-font-family: MapModel.font-family;
+
+    // 视口: Flickable 取内容坐标(=世界像素), 瓦片/标记都按世界像素摆放
+    // (Flickable 自身会把内容裁剪到视口, 无需额外 clip)
+    map-fli := Flickable {
+
+        for t in MapModel.tiles: Image {
+            x: t.x;
+            y: t.y;
+            width: t.w;
+            height: t.w;
+            source: t.tile;
+        }
+
+        // 落点标记(内容坐标, 随图滚动; 拖动地图它跟着走)
+        if MapModel.has-marker: Rectangle {
+            x: MapModel.marker-x - self.width / 2;
+            y: MapModel.marker-y - self.height / 2;
+            width: 22px;
+            height: 22px;
+            border-radius: self.width / 2;
+            background: #1976d2;
+            border-width: 3px;
+            border-color: white;
+        }
+
+        // 触摸区: 滚轮缩放 + 点击落点(拖动交给 Flickable 平移)
+        ta := TouchArea {
+            property <length> press-x: 0px;
+            property <length> press-y: 0px;
+            property <bool> did-drag: false;
+
+            // 滚轮缩放(桌面), 锚点 = 光标(Flickable 本地坐标 = 世界像素 + content-x)
+            scroll-event(e) => {
+                if (e.delta-y > 0) {
+                    MapModel.zoom-in(self.mouse-x + map-fli.content-x, self.mouse-y + map-fli.content-y);
+                    return accept;
+                }
+                if (e.delta-y < 0) {
+                    MapModel.zoom-out(self.mouse-x + map-fli.content-x, self.mouse-y + map-fli.content-y);
+                    return accept;
+                }
+                return reject;
+            }
+
+            // 轻点/拖动判定: 用位移阈值(≥8px)区分单击落点与拖动平移
+            pointer-event(e) => {
+                if (e.kind == PointerEventKind.down) {
+                    press-x = self.mouse-x;
+                    press-y = self.mouse-y;
+                    did-drag = false;
+                } else if (e.kind == PointerEventKind.move) {
+                    if (Math.abs(self.mouse-x - press-x) >= 8px
+                        || Math.abs(self.mouse-y - press-y) >= 8px) {
+                        did-drag = true;
+                    }
+                } else if (e.kind == PointerEventKind.up) {
+                    if (!did-drag) {
+                        // 单击落点: self.mouse-x/y 已是 Flickable 内容坐标(=世界像素)
+                        MapModel.set-coordinate(self.mouse-x, self.mouse-y);
+                    }
+                }
+            }
+        }
+
+        flicked => {
+            MapModel.flicked(map-fli.content-x, map-fli.content-y);
+        }
+    }
+
+    // ===== 双指捏合缩放 =====
+    // PinchGesture 由 Slint core 的触摸状态机合成(双指按下跨过阈值后开始),
+    // android 后端把每个指针都派发成 Touch 事件, 所以这条路在 Android 同样可用。
+    // 处理器未激活时单指事件 ForwardAndIgnore, 不影响 Flickable 单指平移;
+    // 捏合期间 Intercept, 避免两个手势同时抢事件。
+    // 栅格瓦片没有连续缩放级: 累计 scale 相对上次跳级 ±1.5 倍跳一个整级,
+    // 锚点 = 双指中点(center 是窗口坐标, 处理器铺满窗口 => 即视口坐标)。
+    ScaleRotateGestureHandler {
+        property <float> base-scale: 1.0;   // 上次跳级时的累计 scale 基线
+
+        started => {
+            base-scale = self.scale;        // 手势起始恒为 1.0, 保险起见记实际值
+        }
+        updated => {
+            if (self.scale / base-scale >= 1.5) {
+                MapModel.zoom-in(self.center.x, self.center.y);
+                base-scale = self.scale;
+            } else if (self.scale / base-scale <= 0.667) {
+                MapModel.zoom-out(self.center.x, self.center.y);
+                base-scale = self.scale;
+            }
+        }
+    }
+
+    // 可视尺寸上行(Rust 初始化/更新视口要用)。
+    // 用 root(窗口)尺寸而非 Flickable 自身尺寸 —— Flickable 可能尚未布局完成,
+    // 上报父级矩形尺寸最稳。
+    out property <length> visible-width: root.width;
+    out property <length> visible-height: root.height;
+
+    // 窗口尺寸变化: 通知 Rust 更新引擎视口并补拉新露出的瓦片
+    callback viewport-changed();
+    changed width => { MapModel.viewport-changed(); }
+    changed height => { MapModel.viewport-changed(); }
+
+    // 页面实例化: 通知 Rust 设初始视口
+    init => {
+        MapModel.view-ready();
+    }
+
+    // Rust 下行: 设置 Flickable 的视口(内容偏移 + 世界边长)
+    // 顺序要紧: 先给 content-width/height, 再给 content-x/y —— 否则在内容尺寸
+    // 还是 0 时写 content-x 会被 Flickable 钳到滚动域 [width-content-width, 0]
+    // 的上界 0, 地图直接跳到世界角落。
+    public function set-viewport(ox: length, oy: length, w: length, h: length) {
+        map-fli.content-width = w;
+        map-fli.content-height = h;
+        map-fli.content-x = ox;
+        map-fli.content-y = oy;
+    }
+
+    // ===== 右侧控制列(底图切换 / 放大 / 缩小 / 定位回中) =====
+    // 移到右下、图形比例尺上方: 常用操作沉到底部拇指区, 顶部只留署名。
+    // y 引用 scale-bar(声明在后, id 解析与顺序无关), 卡片/比例尺变动自动跟随。
+    VerticalLayout {
+        x: parent.width - self.width - 12px;
+        y: scale-bar.y - self.height - 12px;
+        width: 44px;
+        // 显式高度 = 4×44 + 3×8 间距; 不写的话 self.height 参与自身 y 绑定
+        // 时取值不可靠, 按钮列会被不透明信息卡整个盖住
+        height: 200px;
+        spacing: 8px;
+
+        MapButton {
+            // 路网时显示地球(点击切卫星), 卫星时显示图层(点击切回路网)
+            earth-icon: !MapModel.is-satellite;
+            layers-icon: MapModel.is-satellite;
+            clicked => { MapModel.toggle-satellite(); }
+        }
+        MapButton {
+            label: "+";
+            clicked => { MapModel.zoom-in-center(); }
+        }
+        MapButton {
+            label: "−";
+            clicked => { MapModel.zoom-out-center(); }
+        }
+        MapButton {
+            // 定位图标(原"中"字): 回中到标记
+            locate-icon: true;
+            clicked => { MapModel.recenter(); }
+        }
+    }
+
+    // ===== 底部信息卡 =====
+    card := Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: parent.height - self.height - root.safe-area-insets.bottom - 12px;
+        width: min(parent.width - 24px, 420px);
+        height: info.preferred-height;
+        border-radius: 16px;
+        background: #ffffffe6;
+        border-width: 1px;
+        border-color: #00000014;
+
+        info := VerticalLayout {
+            padding: 12px;
+            spacing: 4px;
+
+            Text {
+                text: "第十八篇 · 地图显示";
+                font-size: 15px;
+                font-weight: 700;
+                color: #1a1a1a;
+            }
+            Text {
+                text: "缩放等级: " + MapModel.zoom-text + "  (1–18)";
+                font-size: 12px;
+                color: #444;
+            }
+            Text {
+                text: "中心: " + MapModel.center-lat + ", " + MapModel.center-lon;
+                font-size: 12px;
+                color: #444;
+            }
+            Text {
+                text: "标记: " + MapModel.marker-lat + ", " + MapModel.marker-lon;
+                font-size: 12px;
+                color: #1976d2;
+            }
+            Text {
+                text: MapModel.status;
+                font-size: 12px;
+                color: #888;
+            }
+            Text {
+                text: "坐标: WGS-84 显示 / 高德(GCJ-02)底图";
+                font-size: 12px;
+                color: #888;
+            }
+        }
+    }
+
+    // 数据来源署名(高德使用条款要求保留)
+    Text {
+        text: "© 高德地图 (GCJ-02)";
+        x: parent.width - self.width - 8px;
+        y: 6px;
+        font-size: 10px;
+        color: #00000099;
+    }
+
+    // ===== 图形比例尺(右下, 主流地图样式: 横条 + 端点刻度 + 整距离标签) =====
+    // 条长/标签由 Rust 按 1-2-5 序列算好, 随缩放级与中心纬度实时更新;
+    // 挂在信息卡上方右下角, y 直接引用 card.y, 卡片高度变化时自动跟随。
+    scale-bar := Rectangle {
+        x: parent.width - self.width - 12px;
+        y: card.y - self.height - 8px;
+        width: max(MapModel.scale-bar-width, 40px);
+        height: 22px;
+
+        Text {
+            text: MapModel.scale-bar-label;
+            width: parent.width;
+            y: 0;
+            font-size: 11px;
+            color: #1a1a1a;
+            horizontal-alignment: center;
+        }
+        Rectangle { x: 0; y: 18px; width: parent.width; height: 2px; background: #333333; }
+        Rectangle { x: 0; y: 13px; width: 2px; height: 7px; background: #333333; }
+        Rectangle { x: parent.width - 2px; y: 13px; width: 2px; height: 7px; background: #333333; }
+    }
+}

@@ -28,6 +28,8 @@ Slint 跨平台系列文章的 **配套 demo 仓库**.
 | `crates/article-03` | 第三幕 | Android JNI 桥 | 🚧 待写 |
 | `crates/article-11` | 第十一幕 | 文件选择与写入 (slint-file-picker + slint-fs) | ✅ 可运行 |
 | [crates/article-16](crates/article-16/) | 第十六幕 | 语音克隆 (参考音频 + 文本 → 48kHz 波形), 桌面/Android | ✅ 可运行 |
+| [crates/article-17](crates/article-17/) | 第十七幕 | 本地 OCR (PP-OCRv4 det/cls/rec, onnxruntime, 纯 CPU) | ✅ 可运行 |
+| [crates/article-18](crates/article-18/) | 第十八幕 | 地图显示 (高德 GCJ-02 栅格瓦片 + Flickable: 平移/锚点缩放/落点/回中/卫星图层) | ✅ 可运行 |
 
 ---
 
