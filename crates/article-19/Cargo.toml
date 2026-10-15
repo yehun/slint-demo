@@ -1,0 +1,71 @@
+[package]
+name = "article-19"
+version = "0.1.0"
+edition = "2024"
+authors = ["yehun"]
+description = "第十九篇, 噪音测量 —— 基于 cpal 麦克风采集 + RMS/dB 声压级实时测量: Slint 大数字读数 + 电平条 + 历史曲线(Image 手绘) + 峰值/平均/最低统计, 可选校准偏移换算近似 SPL"
+build = "build.rs"
+
+[dependencies]
+slint = { workspace = true }
+# 麦克风采集: cpal 0.15 跨平台(桌面 alsa/coreaudio/wasapi, Android 走 oboe)
+cpal = "0.15"
+log = "0.4"
+env_logger = "0.11"
+
+[build-dependencies]
+slint-build = { workspace = true }
+
+[features]
+default = ["desktop"]
+desktop = []
+# Android 用 femtovg(GPU) 渲染器; 麦克风走 cpal 的 oboe 后端(需 RECORD_AUDIO 权限)
+android = ["slint/backend-android-activity-06", "slint/renderer-femtovg"]
+
+[lib]
+path = "src/lib.rs"
+crate-type = ["cdylib", "lib"]
+
+[[bin]]
+path = "src/main.rs"
+name = "article_19"
+
+# ===== Android 构建配置 =====
+[package.metadata.android]
+use_aapt2 = true
+use_gradle = true
+package = "com.example.article19"
+build_targets = ["aarch64-linux-android"]
+min_sdk_version = 30
+target_sdk_version = 35
+compile_sdk_version = 35
+java_sources = "android/java"
+
+[package.metadata.android.application]
+label = "Article 19 - Noise Meter"
+
+[[package.metadata.android.application.activity]]
+name = "com.example.article19.MainActivity"
+orientation = "portrait"
+launch_mode = "singleTop"
+config_changes = "uiMode|screenSize|screenLayout|density|keyboard|keyboardHidden"
+exported = true
+resizeable_activity = false
+always_retain_task_state = true
+
+[[package.metadata.android.application.activity.intent_filter]]
+actions = ["android.intent.action.MAIN"]
+categories = ["android.intent.category.LAUNCHER"]
+
+[[package.metadata.android.application.activity.meta_data]]
+name = "android.app.lib_name"
+value = "article_19"
+
+[package.metadata.android.signing.release]
+path = "../../assets/keystore/debug.keystore"
+keystore_password = "android"
+
+# ===== Android 权限 =====
+# RECORD_AUDIO: 危险权限, 运行时需授权(见 android/java 的 MainActivity 在 onCreate 申请)
+[[package.metadata.android.uses_permission]]
+name = "android.permission.RECORD_AUDIO"

@@ -1,0 +1,175 @@
+// 第十九篇, 噪音测量
+// UI — 卡片式: 大数字读数 + 电平条 + 历史曲线(Image 手绘) + 峰值/平均/最低统计 + 校准滑块
+//
+// 核心模式:
+// 1. NoiseModel 全局只放"下行属性 + 上行回调", Rust 算好 dB/曲线后直接写, UI 纯展示
+// 2. 历史曲线是 Rust 画好的 image, 左侧 0/30/60/90/120 dB 刻度由 Slint Text 叠加, 纵轴与画布一致
+// 3. 电平条与数字颜色按 dB 阈值变绿/黄/红(70 / 90 dB 两档)
+
+import "../../../assets/fonts/MiSans-Normal.ttf";
+import { Button, Slider } from "std-widgets.slint";
+
+export global NoiseModel {
+    // --- 读数(下行, Rust 写) ---
+    in-out property <string> db-text: "0.0";     // 当前 dB(格式化)
+    in-out property <float> db-value: 0;          // 当前 dB(给颜色逻辑用)
+    in-out property <float> level-pct: 0;         // 电平条填充百分比 0..100
+    in-out property <image> history;              // 历史曲线(手绘)
+    in-out property <string> peak-text: "-";
+    in-out property <string> avg-text: "-";
+    in-out property <string> min-text: "-";
+    in-out property <bool> measuring: false;
+    in-out property <string> status: "就绪 · 点击「开始测量」";
+    in-out property <string> device-text: "-";
+    // 校准偏移(0 dBFS ≈ 该值 dB SPL)。Slider 双向绑定, Rust 每帧读它
+    in-out property <float> calib-offset: 100;
+    // 仪表类字体族(Android 软件渲染器需显式指定 CJK 字体; 桌面用 "MiSans")
+    in-out property <string> font-family: "MiSans";
+
+    // --- 上行回调(Rust 监听) ---
+    callback toggle-measure();
+}
+
+export component MainWindow inherits Window {
+    // ===== 主题色(浅色, 干净仪表风) =====
+    property <color> bg: #f5f6f8;
+    property <color> card: #ffffff;
+    property <color> border: #e3e6ea;
+    property <color> text-strong: #1a1a1f;
+    property <color> text-weak: #6b7280;
+    property <color> accent: #1565c0;
+    property <color> good: #2e7d32;
+    property <color> warn: #f9a825;
+    property <color> danger: #c62828;
+
+    title: "第十九篇 · 噪音测量";
+    background: bg;
+    default-font-family: NoiseModel.font-family;
+    min-width: 360px;
+    min-height: 640px;
+    preferred-width: 440px;
+    preferred-height: 760px;
+
+    // 根布局直接用安全区 inset 做 padding, 避免内容顶到状态栏 / 刘海 / 底部手势条。
+    VerticalLayout {
+        padding-top: 18px + root.safe-area-insets.top;
+        padding-bottom: 18px + root.safe-area-insets.bottom;
+        padding-left: 18px + root.safe-area-insets.left;
+        padding-right: 18px + root.safe-area-insets.right;
+        spacing: 14px;
+
+        // ===== 标题 =====
+        VerticalLayout {
+            spacing: 2px;
+            Text { text: "噪音测量 · Noise Meter"; font-size: 22px; font-weight: 700; color: text-strong; }
+            Text { text: "用麦克风实时测量声压级 (dB)"; font-size: 12px; color: text-weak; }
+        }
+
+        // ===== 主读数卡 =====
+        Rectangle {
+            background: card; border-radius: 16px; border-width: 1px; border-color: border;
+            VerticalLayout { padding: 16px; spacing: 10px;
+                HorizontalLayout {
+                    alignment: space-between;
+                    Text { text: "当前声压级"; font-size: 13px; color: text-weak; vertical-alignment: center; }
+                    Text {
+                        text: NoiseModel.measuring ? "● 测量中" : "○ 待机";
+                        font-size: 12px;
+                        color: NoiseModel.measuring ? good : text-weak;
+                        vertical-alignment: center;
+                    }
+                }
+                // 大数字(颜色随 dB 阈值变化)
+                Text {
+                    text: NoiseModel.db-text;
+                    font-size: 64px; font-weight: 800;
+                    color: NoiseModel.db-value < 70 ? good : NoiseModel.db-value < 90 ? warn : danger;
+                    horizontal-alignment: center;
+                }
+                Text { text: "dB"; font-size: 14px; color: text-weak; horizontal-alignment: center; }
+                // 电平条(填充宽度绑定 level-pct)
+                Rectangle {
+                    height: 18px; border-radius: 9px; background: #eceff3;
+                    Rectangle {
+                        height: parent.height;
+                        width: (parent.width * NoiseModel.level-pct) / 100.0;
+                        border-radius: 9px;
+                        background: NoiseModel.db-value < 70 ? good : NoiseModel.db-value < 90 ? warn : danger;
+                    }
+                }
+            }
+        }
+
+        // ===== 历史曲线卡 =====
+        Rectangle {
+            background: card; border-radius: 16px; border-width: 1px; border-color: border;
+            height: 230px;
+            VerticalLayout { padding: 10px; spacing: 6px;
+                Text { text: "历史曲线 (约 24 秒)"; font-size: 12px; color: text-weak; }
+                // 画布 + 左侧刻度叠加(纵轴映射与 Rust 端一致: y = h - (db+10)/130*h)
+                r := Rectangle {
+                    height: 180px;
+                    Image { source: NoiseModel.history; width: parent.width; height: parent.height; }
+                    Text { text: "120"; x: 4px; y: 0; font-size: 10px; color: text-weak; }
+                    Text { text: "90";  x: 4px; y: (parent.height * (1 - (90 + 10) / 130));  font-size: 10px; color: text-weak; }
+                    Text { text: "60";  x: 4px; y: (parent.height * (1 - (60 + 10) / 130));  font-size: 10px; color: text-weak; }
+                    Text { text: "30";  x: 4px; y: (parent.height * (1 - (30 + 10) / 130));  font-size: 10px; color: text-weak; }
+                    Text { text: "0";   x: 4px; y: (parent.height * (1 - (0 + 10) / 130));   font-size: 10px; color: text-weak; }
+                }
+            }
+        }
+
+        // ===== 统计卡(峰值/平均/最低) =====
+        Rectangle {
+            background: card; border-radius: 16px; border-width: 1px; border-color: border;
+            HorizontalLayout { padding: 14px; spacing: 10px; alignment: space-between;
+                VerticalLayout { spacing: 2px;
+                    Text { text: "峰值"; font-size: 11px; color: text-weak; horizontal-alignment: center; }
+                    Text { text: NoiseModel.peak-text; font-size: 18px; font-weight: 700; color: danger; horizontal-alignment: center; }
+                }
+                VerticalLayout { spacing: 2px;
+                    Text { text: "平均"; font-size: 11px; color: text-weak; horizontal-alignment: center; }
+                    Text { text: NoiseModel.avg-text; font-size: 18px; font-weight: 700; color: text-strong; horizontal-alignment: center; }
+                }
+                VerticalLayout { spacing: 2px;
+                    Text { text: "最低"; font-size: 11px; color: text-weak; horizontal-alignment: center; }
+                    Text { text: NoiseModel.min-text; font-size: 18px; font-weight: 700; color: text-strong; horizontal-alignment: center; }
+                }
+            }
+        }
+
+        // ===== 控制卡 =====
+        Rectangle {
+            background: card; border-radius: 16px; border-width: 1px; border-color: border;
+            VerticalLayout { padding: 14px; spacing: 12px;
+                Button {
+                    text: NoiseModel.measuring ? "停止测量" : "开始测量";
+                    clicked => { NoiseModel.toggle-measure(); }
+                }
+                // 校准偏移
+                VerticalLayout { spacing: 4px;
+                    HorizontalLayout { alignment: space-between;
+                        Text { text: "校准偏移"; font-size: 12px; color: text-weak; vertical-alignment: center; }
+                        Text { text: "\{round(NoiseModel.calib-offset)} dB"; font-size: 12px; color: accent; vertical-alignment: center; }
+                    }
+                    Slider {
+                        minimum: 0;
+                        maximum: 120;
+                        value: NoiseModel.calib-offset;
+                        changed(v) => { NoiseModel.calib-offset = v; }
+                    }
+                    Text {
+                        text: "0 dBFS ≈ 校准偏移 dB SPL(默认 100)。用已知声压的参考音标定后, 读数才逼近真实分贝。";
+                        font-size: 11px; color: text-weak; wrap: word-wrap;
+                    }
+                }
+            }
+        }
+
+        // ===== 状态 + 设备 =====
+        VerticalLayout { spacing: 2px;
+            Text { text: NoiseModel.status; font-size: 12px; color: text-weak; }
+            Text { text: "设备: " + NoiseModel.device-text; font-size: 11px; color: text-weak; }
+        }
+    }
+}
