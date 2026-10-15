@@ -1,7 +1,7 @@
 // 第十八篇, Slint 地图显示
 //
-// UI — 全幅瓦片地图(Flickable)+ 右侧控制列(放大/缩小/回中)+ 底部信息卡(读数)
-// + 落点标记 + 高德署名(GCJ-02)。交互逻辑(平移/滚轮缩放/点击落点/回中)在 map.rs。
+// UI — 全幅瓦片地图(Flickable)+ 右侧控制列(底图切换/放大/缩小/定位)+ 底部信息卡(读数)
+// + 定位蓝点 + 精度圈 + 高德署名(GCJ-02)。交互逻辑(平移/滚轮缩放/点击落点/定位)在 map.rs。
 //
 // 核心模式:
 // 1. 瓦片 Image 直接铺在 Flickable 的内容坐标(=世界像素)上, 拖动即平移, 随图滚动
@@ -26,11 +26,13 @@ export global MapModel {
     // 缩放级(1–18)
     in-out property <float> zoom: 3.0;
     in-out property <string> zoom-text: "3";
-    // 落点标记
+    // 落点标记(GPS 蓝点 / 手动选点共用)
     in-out property <bool> has-marker: false;
     // 标记世界像素(Flickable 内容坐标, 随图滚动)
     in property <length> marker-x: 0px;
     in property <length> marker-y: 0px;
+    // 精度圈半径(像素): Rust 按 精度(米)/地面分辨率 算好并封顶; 0 = 不画
+    in property <length> accuracy-px: 0px;
     // 读数
     in-out property <string> center-lat: "0.00000";
     in-out property <string> center-lon: "0.00000";
@@ -48,7 +50,16 @@ export global MapModel {
     callback zoom-in-center();            // 以视口中心放大(按钮)
     callback zoom-out-center();           // 以视口中心缩小(按钮)
     callback set-coordinate(length, length); // 点击落点: (世界像素 x, y)
-    callback recenter();                  // 回中到标记(按钮)
+    // 双指捏合收尾: (连续缩放因子, 锚点x, 锚点y); 锚点=视口坐标(无旋转, 窗口
+    // 坐标即视口坐标), Rust 吸附最近整数级并保锚点地理不动, 回填残留倍率
+    callback gesture-commit(float, length, length);
+    // 捏合残留倍率: 整数级落地后预览倍率的剩余部分(f / 2^Δ), Slint 以它
+    // 起步缓动回 1.0(释放无缝衔接)
+    in-out property <float> pinch-residual: 1.0;
+    // 捏合起止: started 让 Rust 收编激活前的少量平移(统一几何基线);
+    // end 供 cancelled 复位 Rust 侧"捏合中"标记
+    callback gesture-start(length, length);
+    callback gesture-end();
     callback view-ready();                // 页面实例化(设初始视口)
     callback toggle-satellite();          // 底图切换: 路网 ↔ 卫星
     callback viewport-changed();          // 窗口尺寸变化: 更新视口补拉瓦片
@@ -61,9 +72,29 @@ export global MapModel {
     in-out property <string> font-family: "";
 }
 
-// 圆角悬浮小按钮(放大/缩小/回中)
+// 定位状态(下行由 Rust 写, 上行回调由 Rust 监听)
+export global LocationModel {
+    // 定位服务已开启(Android 弹过权限框 / 桌面已发起 IP 定位)
+    in-out property <bool> locating: false;
+    // 已有定位修复
+    in property <bool> has-fix: false;
+    // 读数: provider 文案 + 精度
+    in-out property <string> provider-text: "未定位";
+    in-out property <string> accuracy-text: "-";
+    // 跟随模式: 新定位自动回中(拖动解除, 定位按钮恢复) —— 按钮高亮用
+    in-out property <bool> following: false;
+
+    // ---- 上行回调(Rust 监听) ----
+    // 定位按钮: 首次点击 = 开启定位; 已开启再点 = 回到我的真实位置
+    callback toggle-locate();
+    // 关闭定位(信息卡定位行的 ✕): 停止刷新, 蓝点停在最后位置
+    callback close-locate();
+}
+
+// 圆角悬浮小按钮(放大/缩小/定位)
 // 定位(准星)图标: 圆环 + 四向刻度, 纯 Slint 基元绘制, 不依赖字体字形
 component LocateIcon inherits Rectangle {
+    in property <color> icon-color: #2b2b2b;
     width: 22px;
     height: 22px;
     background: transparent;
@@ -77,13 +108,13 @@ component LocateIcon inherits Rectangle {
         border-radius: self.width / 2;
         background: transparent;
         border-width: 2px;
-        border-color: #2b2b2b;
+        border-color: root.icon-color;
     }
     // 上 / 下 / 左 / 右 刻度
-    Rectangle { x: (parent.width - 2px) / 2; y: 0; width: 2px; height: 5px; background: #2b2b2b; }
-    Rectangle { x: (parent.width - 2px) / 2; y: parent.height - 5px; width: 2px; height: 5px; background: #2b2b2b; }
-    Rectangle { y: (parent.height - 2px) / 2; x: 0; width: 5px; height: 2px; background: #2b2b2b; }
-    Rectangle { y: (parent.height - 2px) / 2; x: parent.width - 5px; width: 5px; height: 2px; background: #2b2b2b; }
+    Rectangle { x: (parent.width - 2px) / 2; y: 0; width: 2px; height: 5px; background: root.icon-color; }
+    Rectangle { x: (parent.width - 2px) / 2; y: parent.height - 5px; width: 2px; height: 5px; background: root.icon-color; }
+    Rectangle { y: (parent.height - 2px) / 2; x: 0; width: 5px; height: 2px; background: root.icon-color; }
+    Rectangle { y: (parent.height - 2px) / 2; x: parent.width - 5px; width: 5px; height: 2px; background: root.icon-color; }
 }
 
 // Lucide 图标(layers / earth)转 Slint Path:
@@ -121,6 +152,8 @@ component MapButton inherits Rectangle {
     in property <bool> earth-icon: false;
     in property <bool> layers-icon: false;
     in-out property <color> bg: #ffffff;
+    // 图标颜色(深色底按钮配白图标)
+    in property <color> icon-color: #2b2b2b;
     callback clicked();
 
     // 任一图标模式为真时隐藏文字
@@ -136,6 +169,7 @@ component MapButton inherits Rectangle {
     if root.locate-icon: LocateIcon {
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
+        icon-color: root.icon-color;
     }
     if root.earth-icon: LucideEarth {
         x: (parent.width - self.width) / 2;
@@ -169,93 +203,147 @@ export component MainWindow inherits Window {
 
     // 视口: Flickable 取内容坐标(=世界像素), 瓦片/标记都按世界像素摆放
     // (Flickable 自身会把内容裁剪到视口, 无需额外 clip)
-    map-fli := Flickable {
+    // ===== 双指捏合: 连续预览 + 释放吸附 =====
+    // 手势期间整图做连续 transform-scale(围绕质心, 纯 GPU 变换, 不经 Rust
+    // 重铺模型, 零延迟跟手); 释放时 Rust 落地最近整数级并算出"残留倍率",
+    // 这里先以残留倍率作为 pinch-scale(视觉与预览无缝), 再由 settle 缓动
+    // 回 1.0 —— 全程无跳变(生产版同款, 替换上篇"死区+跨 1.5x 跳级")。
+    property <float> pinch-scale: 1.0;
+    property <float> pinch-settle: 1.0;
+    animate pinch-settle { duration: 120ms; easing: ease-out; }
+    property <length> pinch-center-x: 0px;
+    property <length> pinch-center-y: 0px;
 
-        for t in MapModel.tiles: Image {
-            x: t.x;
-            y: t.y;
-            width: t.w;
-            height: t.w;
-            source: t.tile;
-        }
+    // 捏合预览容器: 包住 Flickable, 围绕质心缩放
+    pinch := Rectangle {
+        width: root.width;
+        height: root.height;
+        transform-scale: root.pinch-scale * root.pinch-settle;
+        transform-origin: { x: root.pinch-center-x, y: root.pinch-center-y };
 
-        // 落点标记(内容坐标, 随图滚动; 拖动地图它跟着走)
-        if MapModel.has-marker: Rectangle {
-            x: MapModel.marker-x - self.width / 2;
-            y: MapModel.marker-y - self.height / 2;
-            width: 22px;
-            height: 22px;
-            border-radius: self.width / 2;
-            background: #1976d2;
-            border-width: 3px;
-            border-color: white;
-        }
+        map-fli := Flickable {
 
-        // 触摸区: 滚轮缩放 + 点击落点(拖动交给 Flickable 平移)
-        ta := TouchArea {
-            property <length> press-x: 0px;
-            property <length> press-y: 0px;
-            property <bool> did-drag: false;
-
-            // 滚轮缩放(桌面), 锚点 = 光标(Flickable 本地坐标 = 世界像素 + content-x)
-            scroll-event(e) => {
-                if (e.delta-y > 0) {
-                    MapModel.zoom-in(self.mouse-x + map-fli.content-x, self.mouse-y + map-fli.content-y);
-                    return accept;
-                }
-                if (e.delta-y < 0) {
-                    MapModel.zoom-out(self.mouse-x + map-fli.content-x, self.mouse-y + map-fli.content-y);
-                    return accept;
-                }
-                return reject;
+            for t in MapModel.tiles: Image {
+                x: t.x;
+                y: t.y;
+                width: t.w;
+                height: t.w;
+                source: t.tile;
             }
 
-            // 轻点/拖动判定: 用位移阈值(≥8px)区分单击落点与拖动平移
-            pointer-event(e) => {
-                if (e.kind == PointerEventKind.down) {
-                    press-x = self.mouse-x;
-                    press-y = self.mouse-y;
-                    did-drag = false;
-                } else if (e.kind == PointerEventKind.move) {
-                    if (Math.abs(self.mouse-x - press-x) >= 8px
-                        || Math.abs(self.mouse-y - press-y) >= 8px) {
-                        did-drag = true;
+            // 定位精度圈: 半径 = 精度(米)/地面分辨率(米每像素), Rust 算好封顶。
+            // 声明在蓝点之前 → 画在蓝点下层。手动选点精度为 0, 自动不画。
+            if MapModel.has-marker && MapModel.accuracy-px > 0: Rectangle {
+                x: MapModel.marker-x - self.width / 2;
+                y: MapModel.marker-y - self.height / 2;
+                width: MapModel.accuracy-px * 2;
+                height: MapModel.accuracy-px * 2;
+                border-radius: self.width / 2;
+                background: #1976d22e;
+                border-width: 1px;
+                border-color: #1976d266;
+            }
+
+            // 落点标记(内容坐标, 随图滚动; 拖动地图它跟着走)
+            if MapModel.has-marker: Rectangle {
+                x: MapModel.marker-x - self.width / 2;
+                y: MapModel.marker-y - self.height / 2;
+                width: 22px;
+                height: 22px;
+                border-radius: self.width / 2;
+                background: #1976d2;
+                border-width: 3px;
+                border-color: white;
+            }
+
+            // 触摸区: 滚轮缩放 + 点击落点(拖动交给 Flickable 平移)
+            ta := TouchArea {
+                property <length> press-x: 0px;
+                property <length> press-y: 0px;
+                property <bool> did-drag: false;
+
+                // 滚轮缩放(桌面), 锚点 = 光标(Flickable 本地坐标 = 世界像素 + content-x)
+                scroll-event(e) => {
+                    if (e.delta-y > 0) {
+                        MapModel.zoom-in(self.mouse-x + map-fli.content-x, self.mouse-y + map-fli.content-y);
+                        return accept;
                     }
-                } else if (e.kind == PointerEventKind.up) {
-                    if (!did-drag) {
-                        // 单击落点: self.mouse-x/y 已是 Flickable 内容坐标(=世界像素)
-                        MapModel.set-coordinate(self.mouse-x, self.mouse-y);
+                    if (e.delta-y < 0) {
+                        MapModel.zoom-out(self.mouse-x + map-fli.content-x, self.mouse-y + map-fli.content-y);
+                        return accept;
+                    }
+                    return reject;
+                }
+
+                // 轻点/拖动判定: 用位移阈值(≥8px)区分单击落点与拖动平移
+                pointer-event(e) => {
+                    if (e.kind == PointerEventKind.down) {
+                        press-x = self.mouse-x;
+                        press-y = self.mouse-y;
+                        did-drag = false;
+                    } else if (e.kind == PointerEventKind.move) {
+                        if (Math.abs(self.mouse-x - press-x) >= 8px
+                            || Math.abs(self.mouse-y - press-y) >= 8px) {
+                            did-drag = true;
+                        }
+                    } else if (e.kind == PointerEventKind.up) {
+                        if (!did-drag) {
+                            // 单击落点: self.mouse-x/y 已是 Flickable 内容坐标(=世界像素)
+                            MapModel.set-coordinate(self.mouse-x, self.mouse-y);
+                        }
                     }
                 }
             }
-        }
 
-        flicked => {
-            MapModel.flicked(map-fli.content-x, map-fli.content-y);
+            flicked => {
+                MapModel.flicked(map-fli.content-x, map-fli.content-y);
+            }
         }
     }
+    // 捏合预览容器结束
 
-    // ===== 双指捏合缩放 =====
+
+    // ===== 双指捏合 =====
     // PinchGesture 由 Slint core 的触摸状态机合成(双指按下跨过阈值后开始),
     // android 后端把每个指针都派发成 Touch 事件, 所以这条路在 Android 同样可用。
     // 处理器未激活时单指事件 ForwardAndIgnore, 不影响 Flickable 单指平移;
     // 捏合期间 Intercept, 避免两个手势同时抢事件。
-    // 栅格瓦片没有连续缩放级: 累计 scale 相对上次跳级 ±1.5 倍跳一个整级,
-    // 锚点 = 双指中点(center 是窗口坐标, 处理器铺满窗口 => 即视口坐标)。
+    // 缩放: 手势期间整图连续预览(pinch 容器 transform-scale 围绕质心, 纯 GPU
+    // 变换零延迟跟手), 释放才吸附最近整数级 —— 去掉上篇"死区+跨 1.5x 跳级"的顿挫。
     ScaleRotateGestureHandler {
-        property <float> base-scale: 1.0;   // 上次跳级时的累计 scale 基线
-
         started => {
-            base-scale = self.scale;        // 手势起始恒为 1.0, 保险起见记实际值
+            root.pinch-scale = 1.0;
+            root.pinch-settle = 1.0;
+            root.pinch-center-x = self.center.x;
+            root.pinch-center-y = self.center.y;
+            // 捏合激活前, 两指落下的瞬间 Flickable 可能已吃掉几个像素的平移:
+            // 先让 Rust 把这段位移收编进 offset, 预览/落地才有同一几何基线
+            // (否则收尾 invoke_set_viewport 会把它弹回去 —— 抖动来源之一)。
+            // Rust 同时置"捏合中"标记, 期间惯性 flicked 一律忽略。
+            MapModel.gesture-start(map-fli.content-x, map-fli.content-y);
         }
         updated => {
-            if (self.scale / base-scale >= 1.5) {
-                MapModel.zoom-in(self.center.x, self.center.y);
-                base-scale = self.scale;
-            } else if (self.scale / base-scale <= 0.667) {
-                MapModel.zoom-out(self.center.x, self.center.y);
-                base-scale = self.scale;
-            }
+            root.pinch-scale = self.scale;
+            // 质心轻滤波: 中心估计逐帧抖动会经 transform-origin 放大成整图
+            // 晃动(离原点越远放得越大), 对半混合把高频分量滤掉(抖动来源之二)。
+            root.pinch-center-x = root.pinch-center-x * 0.5 + self.center.x * 0.5;
+            root.pinch-center-y = root.pinch-center-y * 0.5 + self.center.y * 0.5;
+        }
+        ended => {
+            // 释放锚点必须与 transform-origin 精确一致, 残留无缝才成立:
+            // 先把原点对齐到最终质心, 再落级(抖动来源之三, 顺序不能反)。
+            root.pinch-center-x = self.center.x;
+            root.pinch-center-y = self.center.y;
+            // 连续因子 → 最近整数级(Rust); 整级先落地(同步重瓦片), 再把预览
+            // 倍率残留成 pinch-scale(释放刹那视觉与预览无缝), settle 缓动回 1。
+            MapModel.gesture-commit(self.scale, self.center.x, self.center.y);
+            root.pinch-scale = MapModel.pinch-residual;
+            root.pinch-settle = 1.0 / Math.max(0.001, MapModel.pinch-residual);
+        }
+        cancelled => {
+            root.pinch-scale = 1.0;
+            root.pinch-settle = 1.0;
+            MapModel.gesture-end();
         }
     }
 
@@ -313,9 +401,14 @@ export component MainWindow inherits Window {
             clicked => { MapModel.zoom-out-center(); }
         }
         MapButton {
-            // 定位图标(原"中"字): 回中到标记
+            // 定位按钮(上篇"回中到标记" → 本篇"回到我的真实位置"):
+            // 首次点击开启定位; 已开启再点回中 + 恢复跟随。
+            // 状态着色: 跟随中深蓝底白图标; 已开定位浅蓝底深图标。
             locate-icon: true;
-            clicked => { MapModel.recenter(); }
+            bg: LocationModel.following ? #1976d2
+                : (LocationModel.locating ? #e3f2fd : #ffffff);
+            icon-color: LocationModel.following ? #ffffff : #2b2b2b;
+            clicked => { LocationModel.toggle-locate(); }
         }
     }
 
@@ -354,6 +447,39 @@ export component MainWindow inherits Window {
                 text: "标记: " + MapModel.marker-lat + ", " + MapModel.marker-lon;
                 font-size: 12px;
                 color: #1976d2;
+            }
+            // 定位读数行: 已开启定位时行尾带 ✕ 关闭入口(停刷新, 蓝点停最后位置)
+            HorizontalLayout {
+                spacing: 6px;
+                Text {
+                    text: "定位: " + LocationModel.provider-text
+                        + (LocationModel.has-fix ? "  " + LocationModel.accuracy-text : "")
+                        + (LocationModel.following ? "  · 跟随中" : "");
+                    font-size: 12px;
+                    color: LocationModel.has-fix ? #1976d2 : #888;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                if LocationModel.locating: Rectangle {
+                    width: 20px;
+                    height: 20px;
+                    y: (parent.height - self.height) / 2;
+                    border-radius: self.width / 2;
+                    background: touch.pressed ? #1976d2 : #00000012;
+
+                    Text {
+                        text: "✕";
+                        font-size: 11px;
+                        color: touch.pressed ? #ffffff : #666666;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                        width: 100%;
+                        height: 100%;
+                    }
+                    touch := TouchArea {
+                        clicked => { LocationModel.close-locate(); }
+                    }
+                }
             }
             Text {
                 text: MapModel.status;

@@ -14,6 +14,7 @@
 slint::include_modules!();
 
 mod gcj02;
+pub mod location;
 mod map;
 
 use std::path::PathBuf;
@@ -65,7 +66,14 @@ fn android_main(app: slint::android::AndroidApp) {
     // 应用私有缓存目录(init 会消费 app, 先取路径; AndroidApp: Clone)
     let cache = android_cache_dir(&app).unwrap_or_else(cache_dir);
 
+    // 定位 JNI 的根: AndroidApp 克隆留存(定位开启时经它取 VM/Activity)
+    location::platform_init(app.clone());
+
     slint::android::init(app).expect("init android");
+
+    // 应用类缓存(LocationInvoke): 必须在主线程用 Activity 的 ClassLoader 加载,
+    // 原生线程 find_class 走 system classloader 找不到 app 类(摄像头幕同款)。
+    location::platform_cache_classes().expect("缓存定位类失败");
 
     // reqwest / tokio 异步拉瓦片需要 tokio reactor 在场 —— desktop_main 已 enter,
     // Android 这里也必须建并 enter, 否则 send() 因"无 runtime"报错、spawn_blocking

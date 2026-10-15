@@ -33,7 +33,11 @@ use std::task::{Context, Poll};
 use slint::{ComponentHandle, Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, VecModel};
 
 use crate::gcj02::{gcj02_to_wgs84, wgs84_to_gcj02};
-use crate::{MainWindow, MapModel, MapTile};
+use crate::location::Location;
+use crate::{MainWindow, LocationModel, MapModel, MapTile};
+
+/// 精度圈半径封顶(像素): 大到出屏没有信息量。
+const ACCURACY_PX_CAP: f64 = 320.0;
 
 const TILE_SIZE: f64 = 256.0;
 pub const MIN_ZOOM: u32 = 1;
@@ -122,8 +126,17 @@ struct MapEngine {
     visible_height: f64,
     offset_x: f64,
     offset_y: f64,
-    /// 落点标记 (lat, lon) —— 以 WGS-84 存储/显示
-    marker: Option<(f64, f64)>,
+    /// 落点标记 (lat, lon, 精度米) —— 以 WGS-84 存储/显示。
+    /// 精度 > 0 时在标记外画一个精度圈(GPS 定位), = 0 不画(手动选点)。
+    marker: Option<(f64, f64, f32)>,
+    /// GPS 真实定位 (lat, lon, 精度米) [WGS-84] —— 只由定位回调写入, **不被
+    /// 手动选点覆盖**; 定位按钮以它把蓝点送回真实位置。
+    gps: Option<(f64, f64, f32)>,
+    /// 手动选点冻结: true 时定位修复不再刷新蓝点(蓝点停在选点处),
+    /// 定位按钮解除冻结并把蓝点送回 GPS。
+    manual: bool,
+    /// 跟随定位: 新定位自动回中(用户拖动解除, 定位按钮恢复)。
+    follow: bool,
     /// 视口是否已初始化(首个 set_center 之后为 true)。
     /// 用来忽略 Flickable 启动瞬间因内容尺寸尚为 0 而误发的 flicked(0,0)。
     initialized: bool,
@@ -149,6 +162,9 @@ impl MapEngine {
             offset_x: 0.0,
             offset_y: 0.0,
             marker: None,
+            gps: None,
+            manual: false,
+            follow: true,
             initialized: false,
             layer: LAYER_ROAD,
         }
@@ -160,10 +176,21 @@ impl MapEngine {
         in_current_layers(self.layer, layer)
     }
 
-    /// 把 (lat, lon) [WGS-84] 放到视口中心并设缩放级。
+    /// 把 (lat, lon) [WGS-84] 放到视口中心并设缩放级(重设视口, 清空瓦片)。
     /// 内部转 GCJ-02 再做墨卡托投影(高德瓦片坐标系)。
     fn set_center(&mut self, lat: f64, lon: f64, zoom: u32) {
         self.zoom_level = zoom.clamp(MIN_ZOOM, MAX_ZOOM);
+        self.center_on(lat, lon);
+        self.loaded_tiles.clear();
+        self.loading_tiles.clear();
+        self.reset_view();
+    }
+
+    /// 把 (lat, lon) [WGS-84] 移到当前缩放级的视口中心 —— **不清瓦片**。
+    ///
+    /// 跟随定位每秒都会回中一次, 清瓦片会把画面打回"下载中"的空白;
+    /// 只改 offset 再 reset_view 补拉缺瓦片即可。
+    fn center_on(&mut self, lat: f64, lon: f64) {
         let (glat, glon) = wgs84_to_gcj02(lat, lon);
         let wx = lon_to_x(glon, self.zoom_level);
         let wy = lat_to_y(glat, self.zoom_level);
@@ -174,15 +201,23 @@ impl MapEngine {
         self.offset_x = wx - self.visible_width / 2.0;
         self.offset_y = wy - self.visible_height / 2.0;
         self.initialized = true;
-        self.loaded_tiles.clear();
-        self.loading_tiles.clear();
         self.reset_view();
     }
 
     /// 拖动结束: 由 Flickable.content-x/y 反推 offset。
+    ///
+    /// 用户拖动 = 解除跟随定位(蓝点继续跟 GPS, 但视口不再被拽走);
+    /// 程序化 set_viewport 引起的同值回弹直接忽略(否则跟随模式会被
+    /// 自己发的视口写回误关)。
     fn pan_to(&mut self, content_x: f64, content_y: f64) {
-        self.offset_x = -content_x;
-        self.offset_y = -content_y;
+        let offset_x = -content_x;
+        let offset_y = -content_y;
+        if (offset_x - self.offset_x).abs() < 0.5 && (offset_y - self.offset_y).abs() < 0.5 {
+            return;
+        }
+        self.offset_x = offset_x;
+        self.offset_y = offset_y;
+        self.follow = false;
         self.reset_view();
     }
 
@@ -203,11 +238,45 @@ impl MapEngine {
     }
 
     /// 点击落点: 世界像素 (wx, wy) [GCJ-02] 反投影成 GCJ-02 经纬度, 再转 WGS-84 存。
+    ///
+    /// 手动选点: 蓝点冻结在选点处(精度未知记 0, 不画精度圈), GPS 修复不再
+    /// 刷新它 —— GPS 真值仍存 gps, 定位按钮随时可把蓝点送回真实位置。
     fn set_marker_world(&mut self, wx: f64, wy: f64) {
         let glat = y_to_lat(wy, self.zoom_level);
         let glon = x_to_lon(wx, self.zoom_level);
         let (lat, lon) = gcj02_to_wgs84(glat, glon);
-        self.marker = Some((lat, lon));
+        self.marker = Some((lat, lon, 0.0));
+        self.manual = true;
+        self.follow = false;
+    }
+
+    /// 定位修复(来自定位回调, UI 线程): 更新 GPS 真值与蓝点, 跟随模式下回中。
+    ///
+    /// provider 坐标系由命名约定判定(见 location/mod.rs): 含 "gps" = WGS-84
+    /// 需转 GCJ-02 贴瓦片; 网络/IP 定位直用(城市级, 偏移无意义)。这里存的是
+    /// WGS-84(引擎公共坐标约定), 投影发生在 publish / center_on 的边界处。
+    fn apply_fix(&mut self, location: &Location) {
+        self.gps = Some((location.latitude, location.longitude, location.accuracy));
+        if self.manual {
+            // 手动选点冻结: 蓝点停在选点处, 但 GPS 真值已存底
+            return;
+        }
+        self.marker = Some((location.latitude, location.longitude, location.accuracy));
+        if self.follow {
+            self.center_on(location.latitude, location.longitude);
+        }
+    }
+
+    /// 定位按钮的"回中到真实位置": 解除手动冻结 + 恢复跟随 + 蓝点回 GPS。
+    fn recenter_to_gps(&mut self) -> bool {
+        let Some((lat, lon, acc)) = self.gps else {
+            return false;
+        };
+        self.manual = false;
+        self.follow = true;
+        self.marker = Some((lat, lon, acc));
+        self.center_on(lat, lon);
+        true
     }
 
     /// 根据当前 offset / 可视尺寸算出可见瓦片范围, 请求缺失瓦片, 并淘汰远处瓦片。
@@ -422,10 +491,24 @@ async fn fetch_tile(
     }
 }
 
+// 定位回调的 UI 线程锚点: 回调发生在定位线程, App(Rc) 非 Send 不能跨线程,
+// 但 UI 线程的 thread_local 可以 —— invoke_from_event_loop 闭包回 UI 线程后
+// 从这里取 App。
+thread_local! {
+    static APP: RefCell<Option<std::rc::Weak<App>>> = const { RefCell::new(None) };
+}
+
 pub(crate) struct App {
     engine: RefCell<MapEngine>,
     pub(crate) main: MainWindow,
     poll_handle: RefCell<Option<slint::JoinHandle<()>>>,
+    /// 定位服务(Android = 系统 LocationManager, 桌面 = IP 兜底)
+    location: crate::location::PlatformLocationService,
+    /// 定位服务是否已开启
+    locating: std::cell::Cell<bool>,
+    /// 双指捏合进行中: 期间忽略 Flickable 的 flicked(两指惯性/激活前的
+    /// 少量平移不得在预览中途改写视口 —— 抖动来源), 由手势起止回调整改。
+    pinching: std::cell::Cell<bool>,
 }
 
 impl App {
@@ -434,7 +517,23 @@ impl App {
             engine: RefCell::new(MapEngine::new(cache_dir)),
             main,
             poll_handle: RefCell::new(None),
+            location: crate::location::PlatformLocationService::new(),
+            locating: std::cell::Cell::new(false),
+            pinching: std::cell::Cell::new(false),
         })
+    }
+
+    /// 定位回调(定位线程) → UI 线程: 更新 GPS 真值 / 蓝点 / 读数。
+    fn apply_fix(self: &Rc<Self>, location: Location) {
+        {
+            let mut eng = self.engine.borrow_mut();
+            eng.apply_fix(&location);
+        }
+        let model = self.main.global::<LocationModel>();
+        model.set_has_fix(true);
+        model.set_provider_text(crate::location::provider_label(&location.provider).into());
+        model.set_accuracy_text(crate::location::accuracy_label(location.accuracy).into());
+        Rc::clone(self).apply();
     }
 
     /// 把当前引擎状态推给 Slint: 视口 + 瓦片模型 + 覆盖层(中心/标记/状态)。
@@ -492,7 +591,7 @@ impl App {
         model.set_scale_bar_width(bar_px as f32);
         model.set_scale_bar_label(format_distance(dist_m).into());
 
-        if let Some((lat, lon)) = eng.marker {
+        if let Some((lat, lon, acc)) = eng.marker {
             // 存的是 WGS-84, 投到高德瓦片需先转 GCJ-02
             let (glat, glon) = wgs84_to_gcj02(lat, lon);
             let mx = lon_to_x(glon, eng.zoom_level);
@@ -502,8 +601,16 @@ impl App {
             model.set_has_marker(true);
             model.set_marker_lat(format!("{:.5}", lat).into());
             model.set_marker_lon(format!("{:.5}", lon).into());
+            // 精度圈半径: 精度(米) / 地面分辨率(米每像素), 封顶防出屏
+            let acc_px = if acc > 0.0 {
+                (acc as f64 / ground_m_per_px(glat, eng.zoom_level)).min(ACCURACY_PX_CAP)
+            } else {
+                0.0
+            };
+            model.set_accuracy_px(acc_px as f32);
         } else {
             model.set_has_marker(false);
+            model.set_accuracy_px(0.0);
             model.set_marker_lat("-".into());
             model.set_marker_lon("-".into());
         }
@@ -516,6 +623,8 @@ impl App {
         );
         // 底图切换按钮文案: 当前路网 → 提示可切"卫"; 当前卫星 → 提示可切回"图"
         model.set_is_satellite(eng.layer == LAYER_SAT);
+        // 跟随状态给定位按钮高亮用
+        self.main.global::<LocationModel>().set_following(eng.follow);
     }
 
     /// 启动/重启瓦片轮询: 在途请求完成后把新瓦片写回 Slint。
@@ -593,6 +702,10 @@ impl App {
 /// 把 Slint 侧的所有回调接到引擎上。返回持有的 App(Rc), 供调用方 run()。
 pub fn bind(app: MainWindow, cache_dir: PathBuf) -> Rc<App> {
     let app_rc = App::new(app, cache_dir);
+    // 定位回调要经 invoke_from_event_loop 回 UI 线程取 App: 登记弱引用
+    APP.with(|slot| {
+        *slot.borrow_mut() = Some(Rc::downgrade(&app_rc));
+    });
 
     {
         let a = Rc::clone(&app_rc);
@@ -601,6 +714,11 @@ pub fn bind(app: MainWindow, cache_dir: PathBuf) -> Rc<App> {
             // (0,0), 若照单全收会把 offset 清成 0、地图跳到世界角落。忽略之。
             let ready = a.engine.borrow().initialized;
             if !ready {
+                return;
+            }
+            // 捏合预览期间视口必须冻结: 两指惯性/激活前的少量平移若在中途
+            // 改写 content-x/y, 整图会在连续缩放的同时平移 —— 即抖动本身。
+            if a.pinching.get() {
                 return;
             }
             let w = a.main.get_visible_width() as f64;
@@ -673,6 +791,11 @@ pub fn bind(app: MainWindow, cache_dir: PathBuf) -> Rc<App> {
         let a = Rc::clone(&app_rc);
         app_rc.main.global::<MapModel>()
             .on_set_coordinate(move |wx, wy| {
+                // 定位开启期间忽略手动选点: 蓝点是 GPS 的, 误触摸不能打乱它
+                // (真机上的真实教训); 关闭定位后恢复上篇的点击落点交互。
+                if a.locating.get() {
+                    return;
+                }
                 let mut eng = a.engine.borrow_mut();
                 eng.set_marker_world(wx as f64, wy as f64);
                 drop(eng);
@@ -680,15 +803,53 @@ pub fn bind(app: MainWindow, cache_dir: PathBuf) -> Rc<App> {
             });
     }
     {
+        // 定位按钮(上篇的"回中到标记"在本篇升级):
+        //   首次点击 = 开启定位服务(Android 弹权限框 / 桌面 IP 定位);
+        //   已开启再点 = 回到我的真实位置(蓝点回 GPS + 恢复跟随)。
         let a = Rc::clone(&app_rc);
-        app_rc.main.global::<MapModel>().on_recenter(move || {
-            let mut eng = a.engine.borrow_mut();
-            if let Some((lat, lon)) = eng.marker {
-                let z = eng.zoom_level;
-                eng.set_center(lat, lon, z);
+        app_rc.main.global::<LocationModel>().on_toggle_locate(move || {
+            if !a.locating.get() {
+                // 系统定位总开关关着(Android): 注册监听也永远等不到回调,
+                // 直接在读数区给提示, 不空等。
+                if !a.location.enabled() {
+                    a.main
+                        .global::<LocationModel>()
+                        .set_provider_text("定位不可用 · 请开启系统定位".into());
+                    return;
+                }
+                // 定位回调在定位线程上被调, App(Rc) 非 Send —— 这里只把
+                // 定位数据(f64/f32/String, 可 Send)经事件循环抛回 UI 线程,
+                // 再从 thread_local 取回 App。
+                let opened = a.location.open(Box::new(|loc| {
+                    let _ = slint::invoke_from_event_loop(move || {
+                        APP.with(|slot| {
+                            if let Some(app) =
+                                slot.borrow().as_ref().and_then(std::rc::Weak::upgrade)
+                            {
+                                app.apply_fix(loc);
+                            }
+                        });
+                    });
+                }));
+                if opened {
+                    a.locating.set(true);
+                    // GPS 接管蓝点: 解除此前可能存在的手动选点冻结,
+                    // 否则首个修复会因 manual 被吞, 蓝点停在选点处
+                    a.engine.borrow_mut().manual = false;
+                    a.main.global::<LocationModel>().set_locating(true);
+                } else {
+                    eprintln!("[location] 定位服务开启失败");
+                }
+                return;
             }
-            drop(eng);
-            Rc::clone(&a).apply();
+            // 已开启: 回中到真实位置
+            let changed = {
+                let mut eng = a.engine.borrow_mut();
+                eng.recenter_to_gps()
+            };
+            if changed {
+                Rc::clone(&a).apply();
+            }
         });
     }
     {
@@ -732,6 +893,75 @@ pub fn bind(app: MainWindow, cache_dir: PathBuf) -> Rc<App> {
             eng.visible_height = h;
             eng.reset_view();
             drop(eng);
+            Rc::clone(&a).apply();
+        });
+    }
+    {
+        // 关闭定位(信息卡定位行 ✕): 停服务 + 停跟随, 蓝点/GPS 真值留在原地;
+        // 之后 ⌖ 可随时重新开启(重新走一遍 open)。
+        let a = Rc::clone(&app_rc);
+        app_rc.main.global::<LocationModel>().on_close_locate(move || {
+            if !a.locating.get() {
+                return;
+            }
+            a.location.close();
+            a.locating.set(false);
+            a.engine.borrow_mut().follow = false;
+            let model = a.main.global::<LocationModel>();
+            model.set_locating(false);
+            Rc::clone(&a).publish();
+        });
+    }
+    {
+        // 捏合开始: 收编激活前 Flickable 吃掉的少量平移(统一几何基线),
+        // 并置"捏合中"标记冻结视口。
+        let a = Rc::clone(&app_rc);
+        app_rc.main.global::<MapModel>().on_gesture_start(move |cx, cy| {
+            a.pinching.set(true);
+            let w = a.main.get_visible_width() as f64;
+            let h = a.main.get_visible_height() as f64;
+            {
+                let mut eng = a.engine.borrow_mut();
+                eng.visible_width = w;
+                eng.visible_height = h;
+                // pan_to 有同值守卫: 典型情况(无预平移)直接早退, 不误关跟随
+                eng.pan_to(cx as f64, cy as f64);
+            }
+            Rc::clone(&a).apply();
+        });
+    }
+    {
+        // 捏合被系统打断(来电话等): 只复位"捏合中"标记, 视觉已在 Slint 侧复位
+        let a = Rc::clone(&app_rc);
+        app_rc.main.global::<MapModel>().on_gesture_end(move || {
+            a.pinching.set(false);
+        });
+    }
+    {
+        // 双指捏合收尾: 连续缩放因子吸附到最近整数级, 锚点(视口坐标)处地理
+        // 不动; 回填残留倍率(f / 2^Δ)给 Slint 缓动回 1 —— 释放无缝无跳变。
+        // 级别已到边界时残留=整个因子, settle 动画把预览倍率平滑压回 1(弹性感)。
+        let a = Rc::clone(&app_rc);
+        app_rc.main.global::<MapModel>().on_gesture_commit(move |factor, ax, ay| {
+            let w = a.main.get_visible_width() as f64;
+            let h = a.main.get_visible_height() as f64;
+            let mut residual = factor as f64;
+            {
+                let mut eng = a.engine.borrow_mut();
+                eng.visible_width = w;
+                eng.visible_height = h;
+                // ln(f)/ln2 = 等效缩放级数增量; 四舍五入到最近整数级
+                let delta = (factor as f64).ln() / std::f64::consts::LN_2;
+                let new_zoom = (eng.zoom_level as i64 + delta.round() as i64)
+                    .clamp(MIN_ZOOM as i64, MAX_ZOOM as i64);
+                if new_zoom != eng.zoom_level as i64 {
+                    let old = eng.zoom_level;
+                    eng.zoom_to(new_zoom as u32, ax as f64, ay as f64);
+                    residual = factor as f64 / f64::exp2(eng.zoom_level as f64 - old as f64);
+                }
+            }
+            a.main.global::<MapModel>().set_pinch_residual(residual as f32);
+            a.pinching.set(false);
             Rc::clone(&a).apply();
         });
     }

@@ -11,8 +11,43 @@ slint = { workspace = true }
 log = "0.4"
 env_logger = "0.11"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "time"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking", "json"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
+serde_json = "1"
+# 定位回调/worker 状态锁: 无毒化(回调 panic 不把服务锁死), 与生产版一致
+parking_lot = "0.12"
+
+[target.'cfg(target_os = "android")'.dependencies]
+# 定位 JNI(第十八幕·下): Env/JavaVM + jni_str!/jni_sig! 宏, 与第 5/9 幕同款。
+jni = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# 桌面 WiFi 定位的 AP 扫描: 经系统总线问 NetworkManager(zbus 纯 Rust,
+# 不引入系统库依赖); blocking API 在后台 worker 线程里跑, 不碰 Slint。
+zbus = "5"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+# 桌面 WiFi 定位的 AP 扫描: Native WiFi API(wlanapi.dll) 枚举周边 BSS。
+windows = { version = "0.56", default-features = false, features = [
+    "Win32_Foundation",
+    "Win32_NetworkManagement_WiFi",
+] }
+
+[target.'cfg(target_vendor = "apple")'.dependencies]
+# 桌面 WiFi 定位的 AP 扫描: CoreWLAN 扫周边网络(Sonoma 起触发系统定位授权,
+# 被拒时扫描为空, 自然落 IP 兜底)。
+# NSEnumerator: NSArray.iter() 依赖它(独立 crate 无 workspace 特性合并, 须显式开)。
+objc2-foundation = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSArray",
+    "NSEnumerator",
+] }
+objc2-core-wlan = { version = "0.3", default-features = false, features = [
+    "std",
+    "CWInterface",
+    "CWNetwork",
+    "CWWiFiClient",
+] }
 
 [build-dependencies]
 slint-build = { workspace = true }
@@ -20,7 +55,10 @@ slint-build = { workspace = true }
 [features]
 default = ["desktop"]
 desktop = []
-android = ["slint/backend-android-activity-06"]
+# Android 用 femtovg(GPU) 而非软件渲染: 捏合预览是全屏 transform-scale 连续
+# 重绘, 软件渲染器每帧全屏重算 —— 抖动/掉帧的主要来源之一。GPU 下一帧一变
+# 换, 捏合/平移/缩放全线流畅。
+android = ["slint/backend-android-activity-06", "slint/renderer-femtovg"]
 
 [lib]
 path = "src/lib.rs"
@@ -72,3 +110,12 @@ name = "android.permission.INTERNET"
 
 [[package.metadata.android.uses_permission]]
 name = "android.permission.ACCESS_NETWORK_STATE"
+
+# ===== 定位权限(第十八幕·下) =====
+# ACCESS_FINE_LOCATION: GPS 精确定位(运行时权限, Java 侧弹系统授权框);
+# ACCESS_COARSE_LOCATION: 网络定位(Android 12 起申请 FINE 时建议同时声明)。
+[[package.metadata.android.uses_permission]]
+name = "android.permission.ACCESS_FINE_LOCATION"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.ACCESS_COARSE_LOCATION"
