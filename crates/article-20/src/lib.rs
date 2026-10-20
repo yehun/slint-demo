@@ -23,7 +23,8 @@ use std::io::Read;
 use std::sync::{Arc, Mutex};
 
 use slint::{ComponentHandle, SharedPixelBuffer};
-use slint_file_picker::{pick_file, pick_file_to_save, FileFilter, PickResult};
+use slint_file_picker::{pick_file_to_save, pick_image, FileFilter, PickResult};
+use slint_fs::PlatformPath;
 
 /// 跨回调共享状态: 源图像素(选图后暂存整图, 确认裁剪后替换为裁出的照片)。
 pub struct AppState {
@@ -62,20 +63,13 @@ fn bind(app: &MainWindow) {
     let state = Arc::new(AppState::new(app.as_weak()));
     let model = app.global::<IdPhotoModel>();
 
-    // ===== 选图: 文件对话框 → 后台解码 → 整图预览 + 自增 crop-epoch =====
+    // ===== 选图: 相册选图(Android ACTION_PICK / 桌面图片对话框) → 后台解码 =====
     let s = state.clone();
     model.on_select_image(move || {
-        // Slint 回调是 FnMut(可能被多次触发), pick_file 的回调是 FnOnce ——
+        // Slint 回调是 FnMut(可能被多次触发), pick 回调是 FnOnce ——
         // s 不能被内层闭包"吃掉", 进内层前必须再 clone 一份
         let s = s.clone();
-        let filters = vec![
-            FileFilter::new("图片")
-                .extension("png").extension("jpg").extension("jpeg")
-                .extension("bmp").extension("gif")
-                .mime("image/*"),
-            FileFilter::new("所有文件").mime("*/*"),
-        ];
-        pick_file(filters, move |result| match result {
+        pick_image(move |result| match result {
             PickResult::Picked(p) => load_image(s, p),
             PickResult::Cancelled => {}
             PickResult::Error(e) => s.set_status(format!("选择失败: {e}")),
@@ -111,21 +105,82 @@ fn bind(app: &MainWindow) {
         g.set_status("已清除, 点纸面重新选图".into());
     });
 
-    // ===== 导出: 先选落点 → 后台 300dpi 合成 → PNG 落盘 =====
+    // ===== 导出: Android 直存相册(MediaStore) / 桌面选落点 → 后台 300dpi 合成 =====
     let s = state.clone();
     model.on_export(move || {
         if s.source.lock().unwrap().is_none() {
             s.set_status("请先选照片并裁剪");
             return;
         }
-        // 同 on_select_image: FnMut 回调里进 FnOnce 闭包前必须 clone
-        let s = s.clone();
-        let filters = vec![FileFilter::new("PNG 图片").extension("png").mime("image/png")];
-        pick_file_to_save("id-photo.png", filters, move |result| match result {
-            PickResult::Picked(p) => export_to(s, p),
-            PickResult::Cancelled => {}
-            PickResult::Error(e) => s.set_status(format!("保存失败: {e}")),
-        });
+        // 参数在 UI 线程读齐(属性不能跨线程读), 随数据一起带入后台
+        let (target, paper, b_enabled, b_mm) = {
+            let app = s.app.upgrade().unwrap();
+            let g = app.global::<IdPhotoModel>();
+            (g.get_target_index(), g.get_paper_index(), g.get_border_enabled(), g.get_border_width())
+        };
+        let Some(img) = s.source.lock().unwrap().clone() else { return };
+        // 时间戳文件名避免相册重名
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let file_name = format!("id-photo-{ts}.png");
+
+        // 后台合成 + 写盘(两侧共用; 缩放整张 6 寸纸约几十毫秒, 不堵 UI)
+        let compose_and_write = move |path: PlatformPath| -> Result<(), String> {
+            let sheet = core::compose_sheet(&img, target, paper, b_enabled, b_mm)?;
+            let mut png = Vec::new();
+            image::DynamicImage::ImageRgba8(sheet)
+                .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+                .map_err(|e| e.to_string())?;
+            let mut file = path.write_file().map_err(|e| e.to_string())?;
+            std::io::Write::write_all(&mut file, &png).map_err(|e| e.to_string())?;
+            // 关键: 清 IS_PENDING 提交入库 —— MediaStore 里 pending 条目
+            // 在相册中不可见, flush 会走 update 把 IS_PENDING 置 0
+            std::io::Write::flush(&mut file).map_err(|e| e.to_string())?;
+            Ok(())
+        };
+
+        #[cfg(target_os = "android")]
+        {
+            // 同桌面分支: FnMut 回调里进 'static 闭包前必须 clone
+            let s = s.clone();
+            std::thread::spawn(move || {
+                let result = (|| -> Result<(), String> {
+                    // 直接插入系统相册: MediaStore images 集合(⚠ 必须带 /media 段,
+                    // insert 到 content://media/external/images 会被 MediaProvider 拒)
+                    // RELATIVE_PATH = DCIM/Article20/, IS_PENDING 写完自动清零, 免存储权限
+                    let base = PlatformPath::new("content://media/external/images/media");
+                    let target_path = PlatformPath::create_file(
+                        &base, "Article20", &file_name, slint_fs::PlatformFileFormat::Png,
+                    )
+                    .map_err(|e| e.to_string())?;
+                    compose_and_write(target_path)
+                })();
+                match result {
+                    Ok(()) => s.set_status("已保存到相册 DCIM/Article20/"),
+                    Err(e) => {
+                        // logcat 可靠留存(防其他应用刷屏滚掉), 状态栏只显示摘要
+                        eprintln!("id-photo export error: {e}");
+                        s.set_status(format!("导出失败: {e}"));
+                    }
+                }
+            });
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            // 同 on_select_image: FnMut 回调里进 FnOnce 闭包前必须 clone
+            let s = s.clone();
+            let filters = vec![FileFilter::new("PNG 图片").extension("png").mime("image/png")];
+            pick_file_to_save(file_name, filters, move |result| match result {
+                PickResult::Picked(p) => match compose_and_write(p) {
+                    Ok(()) => s.set_status("导出完成"),
+                    Err(e) => s.set_status(format!("导出失败: {e}")),
+                },
+                PickResult::Cancelled => {}
+                PickResult::Error(e) => s.set_status(format!("保存失败: {e}")),
+            });
+        }
     });
 }
 
@@ -164,36 +219,6 @@ fn load_image(state: Arc<AppState>, path: slint_fs::PlatformPath) {
             });
         }
         Err(e) => state.set_status(format!("解码失败: {e}")),
-    }
-}
-
-/// 300dpi 合成 + 落盘(已在后台线程: 缩放整张 6 寸纸约几十毫秒, 不堵 UI)。
-fn export_to(state: Arc<AppState>, path: slint_fs::PlatformPath) {
-    // 参数在 UI 线程读齐再带入后台(回调此刻正跑在后台线程, 不能直接读模型)
-    let (target, paper, b_enabled, b_mm) = {
-        let app = state.app.upgrade().unwrap();
-        let g = app.global::<IdPhotoModel>();
-        (g.get_target_index(), g.get_paper_index(), g.get_border_enabled(), g.get_border_width())
-    };
-    let src = state.source.lock().unwrap().clone();
-    let Some(img) = src else { return };
-
-    state.set_status("合成排版图中…");
-
-    let result = core::compose_sheet(&img, target, paper, b_enabled, b_mm)
-        .and_then(|sheet| {
-            let mut png = Vec::new();
-            image::DynamicImage::ImageRgba8(sheet)
-                .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
-                .map_err(|e| e.to_string())?;
-            let mut file = path.write_file().map_err(|e| e.to_string())?;
-            std::io::Write::write_all(&mut file, &png).map_err(|e| e.to_string())?;
-            Ok(())
-        });
-
-    match result {
-        Ok(()) => state.set_status("导出完成, 拿去 6 寸相纸打印, 沿线裁开即可"),
-        Err(e) => state.set_status(format!("导出失败: {e}")),
     }
 }
 

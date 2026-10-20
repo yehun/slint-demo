@@ -7,7 +7,9 @@ description = "第二十篇, 证件照排版 —— 比例裁剪 + 打印纸自�
 build = "build.rs"
 
 [dependencies]
-slint = { workspace = true }
+# 不用 workspace 的 slint (它带 gettext 特性): 本 demo 无国际化需求,
+# 关掉 gettext 可避免 Android 构建时从 C 源码编译 gettext-sys
+slint = { git = "https://github.com/slint-ui/slint.git", branch = "master", features = ["accessibility", "renderer-software"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "bmp"] }
 slint-file-picker = { path = "../slint-file-picker" }
 slint-fs = { path = "../slint-fs" }
