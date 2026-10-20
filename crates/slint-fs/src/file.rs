@@ -160,10 +160,10 @@ impl Write for PlatformFile {
             FileInner::Content(_file_descriptor) => {
                 if self.path.is_content() {
                     let uri = self.path.to_string();
-                    let _result = crate::android::jni_content_flush(
-                        &uri,
-                        true
-                    );
+                    // flush(content) = 清 IS_PENDING 提交入库; 失败至少留痕
+                    if let Err(e) = crate::android::jni_content_flush(&uri, true) {
+                        eprintln!("slint-fs: flush content uri failed: {e}");
+                    }
                 }
                 Ok(())
             },

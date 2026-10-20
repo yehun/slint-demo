@@ -41,7 +41,18 @@ where
         match callback(env) {
             Ok(value) => Ok(value),
             Err(e) => {
-                captured = Some(e);
+                // pending 的 Java 异常: 先提取 message(可直接看到根因),
+                // 再打印完整堆栈, 然后清掉异常. 否则上层只看到
+                // "Java exception was thrown", 无从排查
+                let java_msg = env
+                    .exception_occurred()
+                    .and_then(|t| t.get_message(env).ok())
+                    .and_then(|js| js.try_to_string(env).ok());
+                env.exception_describe();
+                captured = Some(match java_msg {
+                    Some(m) if !m.is_empty() => Error::Java(m),
+                    _ => e,
+                });
                 Err(jni::errors::Error::JniCall(jni::errors::JniError::Other(-100)))
             }
         }
@@ -231,7 +242,9 @@ pub fn jni_content_flush(uri: &str, is_pending: bool) -> Result<bool> {
 
         let values_cls: JClass = env.find_class(jni_str!("android/content/ContentValues"))?;
         let values = env.new_object(&values_cls, jni_sig!(() -> void), &[])?;
-        let pending: i16 = if is_pending { 1 } else { 0 };
+        // 语义与 yehun-slint 对齐: is_pending=true 表示"写入完成, 清 pending
+        // 提交入库(相册可见)"; false 表示重新标记为 pending
+        let pending: i16 = if is_pending { 0 } else { 1 };
         put_short_column(env, &values, jni_str!("android/provider/MediaStore$MediaColumns"), jni_str!("IS_PENDING"), pending)?;
 
         let row = env.call_method(

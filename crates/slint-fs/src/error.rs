@@ -7,6 +7,9 @@ pub enum Error {
     #[cfg(target_os = "android")]
     #[error("jni error: {0}")]
     Jni(#[from] jni::errors::Error),
+    #[cfg(target_os = "android")]
+    #[error("java: {0}")]
+    Java(String),
     #[error("operation not supported on content URI")]
     NotSupported,
     #[error("invalid URI")]
