@@ -102,4 +102,5 @@ pub use android::{
     pick_file,
     pick_file_to_save,
     pick_files,
+    set_activity,
 };

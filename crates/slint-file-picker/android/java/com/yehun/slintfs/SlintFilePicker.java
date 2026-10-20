@@ -27,33 +27,47 @@ public class SlintFilePicker {
 
     /** 打开已有文件: ACTION_OPEN_DOCUMENT */
     public static void open(Activity activity, String[] mimeTypes) {
-        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, false);
+        // ⛔ 必须在 UI 线程发起: Slint 事件循环跑在 android-activity 的原生胶水
+        // 线程上, 直接调 startActivityForResult 会踩 MIUI 等 ROM 注入的启动钩子,
+        // 抛 IllegalMonitorStateException("object not locked by thread before wait()")
+        activity.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, false);
 
-        // SAF 要求 setType 给一个宽类型, 具体列表放 EXTRA_MIME_TYPES
-        if (mimeTypes != null && mimeTypes.length > 0) {
-            String first = mimeTypes[0];
-            int slash = first.indexOf('/');
-            String base = slash > 0 ? first.substring(0, slash + 1) + "*" : first;
-            intent.setType(base);
-            intent.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes);
-        } else {
-            intent.setType("*/*");
-        }
+                // SAF 要求 setType 给一个宽类型, 具体列表放 EXTRA_MIME_TYPES
+                if (mimeTypes != null && mimeTypes.length > 0) {
+                    String first = mimeTypes[0];
+                    int slash = first.indexOf('/');
+                    String base = slash > 0 ? first.substring(0, slash + 1) + "*" : first;
+                    intent.setType(base);
+                    intent.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes);
+                } else {
+                    intent.setType("*/*");
+                }
 
-        activity.startActivityForResult(intent, REQUEST_CODE_PICK_FILE);
+                activity.startActivityForResult(intent, REQUEST_CODE_PICK_FILE);
+            }
+        });
     }
 
     /** 保存文件: ACTION_CREATE_DOCUMENT */
     public static void save(Activity activity, String mimeType, String fileName) {
-        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType(mimeType == null || mimeType.isEmpty() ? "*/*" : mimeType);
-        if (fileName != null && !fileName.isEmpty()) {
-            intent.putExtra(Intent.EXTRA_TITLE, fileName);
-        }
-        activity.startActivityForResult(intent, REQUEST_CODE_SAVE_FILE);
+        // 同 open: runOnUiThread 切回 UI 线程再发起
+        activity.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                intent.setType(mimeType == null || mimeType.isEmpty() ? "*/*" : mimeType);
+                if (fileName != null && !fileName.isEmpty()) {
+                    intent.putExtra(Intent.EXTRA_TITLE, fileName);
+                }
+                activity.startActivityForResult(intent, REQUEST_CODE_SAVE_FILE);
+            }
+        });
     }
 
     /** demo 的 MainActivity.onActivityResult 里调用这一行 */

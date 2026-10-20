@@ -62,6 +62,10 @@ thread_local! {
 #[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
 fn android_main(app: slint::android::AndroidApp) {
+    // 把真实 Activity 全局引用注册给 slint-file-picker
+    // (SAF 的文件选择必须由真 Activity 发起, ndk_context 里是 Application)
+    slint_file_picker::set_activity(app.activity_as_ptr());
+
     slint::android::init(app).expect("init android");
 
     let window = MainWindow::new().expect("创建窗口失败");

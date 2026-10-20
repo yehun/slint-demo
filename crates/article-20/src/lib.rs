@@ -205,6 +205,10 @@ fn android_main(app: slint::android::AndroidApp) {
         eprintln!("RUST PANIC: {info}");
     }));
 
+    // 把真实 Activity 全局引用注册给 slint-file-picker:
+    // SAF 的选图/保存必须由真 Activity 发起 (ndk_context 里是 Application)
+    // ⛔ init(app) 按值消费 app, 取指针必须放在它前面
+    slint_file_picker::set_activity(app.activity_as_ptr());
     slint::android::init(app).expect("init android");
 
     let window = MainWindow::new().expect("创建窗口失败");

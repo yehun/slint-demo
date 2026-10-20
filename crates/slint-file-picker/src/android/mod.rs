@@ -22,6 +22,21 @@ use crate::{FileFilter, PickResult};
 
 static JVM: OnceLock<JavaVM> = OnceLock::new();
 
+/// 真实 Activity 的全局引用指针 (demo 在 android_main 里经
+/// `AndroidApp::activity_as_ptr()` 注册)。
+///
+/// ⛔ 不能用 ndk_context 的 context() 顶替: 那里存的是 **Application** 全局引用
+/// (android-activity init.rs 初始化), 不是 Activity。把 Application 当 Activity
+/// 传给 SAF 的 startActivityForResult 在 MIUI 上直接炸
+/// (IllegalMonitorStateException / SIGSEGV, ROM 注入的启动监控挂在非法接收者上)。
+static ACTIVITY_PTR: OnceLock<usize> = OnceLock::new();
+
+/// 注册真实 Activity (demo 的 android_main 里调用一次, 指针须为全局引用)
+#[cfg(target_os = "android")]
+pub fn set_activity(activity_ptr: *mut std::ffi::c_void) {
+    let _ = ACTIVITY_PTR.set(activity_ptr as usize);
+}
+
 fn java_vm() -> &'static JavaVM {
     JVM.get_or_init(|| {
         let vm_ptr = ndk_context::android_context().vm();
@@ -36,8 +51,13 @@ where
     java_vm().attach_current_thread(callback)
 }
 
-/// 当前 Activity (android-activity 的全局引用即运行中的 Activity)
+/// 当前 Activity: 优先取 demo 注册的真实 Activity 全局引用;
+/// 未注册时回落到 ndk_context (Application —— 仅够 startActivity 级调用,
+/// SAF 选择必须注册真实 Activity)。
 fn activity<'a>(env: &mut Env<'a>) -> jni::errors::Result<JObject<'a>> {
+    if let Some(&ptr) = ACTIVITY_PTR.get() {
+        return Ok(unsafe { JObject::from_raw(env, ptr as *mut _) });
+    }
     let ptr = ndk_context::android_context().context();
     Ok(unsafe { JObject::from_raw(env, ptr as *mut _) })
 }
@@ -115,13 +135,13 @@ fn invoke_open(mime_types: &[String]) -> Result<(), String> {
             let j_mime = env.new_string(mime)?;
             j_mimes.set_element(env, i, &j_mime)?;
         }
-        env.call_static_method(
+        let r = env.call_static_method(
             &cls,
             jni_str!("open"),
             jni_sig!((android.app.Activity, [java.lang.String]) -> void),
             &[JValue::Object(&activity), JValue::Object(&j_mimes)],
-        )?;
-        Ok(())
+        ).map(|_| ());
+        dump_if_exception(env, r)
     }).map_err(|e| e.to_string())
 }
 
@@ -132,14 +152,23 @@ fn invoke_save(default_name: &str, mime_types: &[String]) -> Result<(), String> 
         let mime = mime_types.first().map(|s| s.as_str()).unwrap_or("*/*");
         let j_mime = env.new_string(mime)?;
         let j_name = env.new_string(default_name)?;
-        env.call_static_method(
+        let r = env.call_static_method(
             &cls,
             jni_str!("save"),
             jni_sig!((android.app.Activity, java.lang.String, java.lang.String) -> void),
             &[JValue::Object(&activity), JValue::Object(&j_mime), JValue::Object(&j_name)],
-        )?;
-        Ok(())
+        ).map(|_| ());
+        dump_if_exception(env, r)
     }).map_err(|e| e.to_string())
+}
+
+/// 调 Java 失败时把 pending 异常的完整 Java 堆栈打印到 stderr(logcat 可见),
+/// 否则 jni crate 只留下一句 message, 排查无从下手。
+fn dump_if_exception(env: &mut Env, r: jni::errors::Result<()>) -> jni::errors::Result<()> {
+    if r.is_err() {
+        env.exception_describe();
+    }
+    r
 }
 
 // ============================================================
