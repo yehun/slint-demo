@@ -23,6 +23,7 @@ members = [
     "crates/article-17",
     "crates/article-18",
     "crates/article-19",
+    "crates/article-20",
 ]
 resolver = "2"
 

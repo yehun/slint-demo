@@ -1,0 +1,816 @@
+// 第二十篇, 证件照排版
+// UI — 打印纸排版预览 + 参数胶囊 + 比例裁剪弹层
+//
+// 核心模式:
+// 1. 排版参数全部是"纯派生": 目标尺寸/纸张/边框三个输入, 其余(块数/朝向/
+//    落点/像素尺寸)都是纯函数算出来的 —— 改参数预览立即重排, 没有任何
+//    "Rust 算好再推给 UI"的中间态。Rust 导出时按同一套公式重算一遍。
+// 2. 比例裁剪弹层: 整图 contain 铺底 + 锁定目标宽高比的选框(拖动移动 +
+//    四角缩放, 高随宽联动), 确认时回传归一化(0..1)左上角 + 宽高。
+// 3. 排版语义(⚠ 与 src/core.rs 同语义, 改必同步):
+//    footprint = 照片mm + 两侧边框mm; 横竖两种朝向各按
+//    floor(纸宽/footW) × floor(纸高/footH) 取块数, 块数多者胜, 网格居中。
+
+import "../../../assets/fonts/MiSans-Normal.ttf";
+
+export global IdPhotoModel {
+    // ===== 参数(UI 控件直接写, Rust 导出瞬间读取) =====
+    // 目标尺寸: 0=1寸(25×35mm), 1=2寸(35×49mm)
+    in-out property <int> target-index: 0;
+    // 打印纸: 0=6寸(102×152mm), 1=7寸(127×178mm)
+    in-out property <int> paper-index: 0;
+    // 边框: 关闭时宽度不参与 footprint; 颜色固定白(裁切留白环)
+    in-out property <bool> border-enabled: false;
+    in-out property <int> border-width: 2;          // mm
+
+    // ===== 状态(下行, Rust 写) =====
+    // 整图预览与像素尺寸(裁剪弹层的 contain 换算/钳位用)
+    in-out property <image> full-preview;
+    in-out property <float> full-w: 0.0;
+    in-out property <float> full-h: 0.0;
+    // 选图解码完成时 Rust 自增 → 主窗口 changed 后弹裁剪层
+    in-out property <int> crop-epoch: 0;
+    in-out property <bool> crop-open: false;        // 裁剪层开关(UI 自持)
+    // 裁剪后的照片预览(排版预览用)
+    in-out property <image> preview;
+    in-out property <bool> has-image: false;
+    in-out property <string> status: "点纸面选一张照片开始";
+    // 仪表类字体族(Android 软件渲染器需显式指定 CJK 字体; 桌面用 "MiSans")
+    in-out property <string> font-family: "MiSans";
+    // 强调色(胶囊/徽标/主按钮共用一处定义)
+    in-out property <color> accent: #1565c0;
+
+    // ===== 上行回调(Rust 监听) =====
+    callback select-image();
+    callback clear-image();
+    // 归一化(0..1)选框左上角 + 归一化宽高; Rust 侧钳位裁定。
+    callback confirm-crop(float, float, float, float);
+    callback export();
+
+    // ===== 尺寸与排版纯派生(⚠ src/core.rs 有同语义一份, 改必同步) =====
+
+    // 目标照片毫米尺寸
+    public pure function photo-w-mm() -> float {
+        return root.target-index == 0 ? 25.0 : 35.0;
+    }
+    public pure function photo-h-mm() -> float {
+        return root.target-index == 0 ? 35.0 : 49.0;
+    }
+    // 打印纸毫米尺寸(纵向: 宽×高)
+    public pure function paper-w-mm() -> float {
+        return root.paper-index == 0 ? 102.0 : 127.0;
+    }
+    public pure function paper-h-mm() -> float {
+        return root.paper-index == 0 ? 152.0 : 178.0;
+    }
+    // 单侧边框 mm(关闭 = 0)
+    public pure function border-mm() -> float {
+        return root.border-enabled ? root.border-width * 1.0 : 0.0;
+    }
+    // 照片含边框 footprint
+    public pure function foot-w-mm() -> float {
+        return root.photo-w-mm() + root.border-mm() * 2.0;
+    }
+    public pure function foot-h-mm() -> float {
+        return root.photo-h-mm() + root.border-mm() * 2.0;
+    }
+
+    // 朝向 A(照片直立): cols×rows
+    public pure function cols-a() -> int {
+        return Math.floor(root.paper-w-mm() / root.foot-w-mm());
+    }
+    public pure function rows-a() -> int {
+        return Math.floor(root.paper-h-mm() / root.foot-h-mm());
+    }
+    // 朝向 B(照片横放, 旋转 90°)
+    public pure function cols-b() -> int {
+        return Math.floor(root.paper-w-mm() / root.foot-h-mm());
+    }
+    public pure function rows-b() -> int {
+        return Math.floor(root.paper-h-mm() / root.foot-w-mm());
+    }
+
+    // 取块数多的朝向(同数取 A —— 减少无谓旋转)
+    public pure function rotated() -> bool {
+        return root.cols-b() * root.rows-b() > root.cols-a() * root.rows-a();
+    }
+    public pure function cols() -> int {
+        return root.rotated() ? root.cols-b() : root.cols-a();
+    }
+    public pure function rows() -> int {
+        return root.rotated() ? root.rows-b() : root.rows-a();
+    }
+    public pure function count() -> int {
+        return root.cols() * root.rows();
+    }
+    // 单块 footprint 的落纸尺寸(旋转后宽高互换)
+    public pure function tile-w-mm() -> float {
+        return root.rotated() ? root.foot-h-mm() : root.foot-w-mm();
+    }
+    public pure function tile-h-mm() -> float {
+        return root.rotated() ? root.foot-w-mm() : root.foot-h-mm();
+    }
+    // 居中偏移(整片网格在纸上的起点)
+    public pure function off-x-mm() -> float {
+        return (root.paper-w-mm() - root.cols() * root.tile-w-mm()) / 2.0;
+    }
+    public pure function off-y-mm() -> float {
+        return (root.paper-h-mm() - root.rows() * root.tile-h-mm()) / 2.0;
+    }
+
+    // 像素尺寸(300dpi, 展示与导出一致)
+    public pure function px(mm: float) -> int {
+        return Math.round(mm / 25.4 * 300.0);
+    }
+    public pure function photo-w-px() -> int {
+        return root.px(root.photo-w-mm());
+    }
+    public pure function photo-h-px() -> int {
+        return root.px(root.photo-h-mm());
+    }
+    public pure function paper-w-px() -> int {
+        return root.px(root.paper-w-mm());
+    }
+    public pure function paper-h-px() -> int {
+        return root.px(root.paper-h-mm());
+    }
+}
+
+// ===== 裁剪选框角部缩放手柄: 拖拽改尺寸(对角锚定) =====
+// corner: 0=左上 1=右上 2=左下 3=右下; 位移回传给 resize-delta,
+// 具体语义换算(含比例联动)与钳位写回在 crop-card.apply-crop。
+component CropHandle inherits TouchArea {
+    in property <int> corner: 3;
+    callback resize-delta(length, length);
+
+    width: 36px;
+    height: 36px;
+
+    property <length> last-x: 0px;
+    property <length> last-y: 0px;
+    changed pressed => {
+        if (self.pressed) {
+            self.last-x = self.mouse-x;
+            self.last-y = self.mouse-y;
+        }
+    }
+    moved => {
+        root.resize-delta(self.mouse-x - self.last-x, self.mouse-y - self.last-y);
+        self.last-x = self.mouse-x;
+        self.last-y = self.mouse-y;
+    }
+
+    Rectangle {
+        width: 18px;
+        height: 18px;
+        border-radius: 5px;
+        background: parent.pressed ? IdPhotoModel.accent : #ffffff;
+        border-width: 1px;
+        border-color: #00000033;
+        x: root.corner == 0 || root.corner == 2 ? 0px : parent.width - self.width;
+        y: root.corner == 0 || root.corner == 1 ? 0px : parent.height - self.height;
+    }
+}
+
+// ===== 选项胶囊 =====
+component Chip inherits Rectangle {
+    in property <string> label;
+    in property <bool> active;
+    callback clicked();
+
+    height: 28px;
+    width: lb.preferred-width + 22px;
+    border-radius: 14px;
+    background: active ? IdPhotoModel.accent : #ffffff;
+    border-width: 1px;
+    border-color: active ? IdPhotoModel.accent : #e3e6ea;
+
+    lb := Text {
+        text: root.label;
+        font-size: 12px;
+        font-weight: root.active ? 600 : 400;
+        color: root.active ? #ffffff : #1a1a1f;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// ===== 比例裁剪弹层(整窗口覆盖) =====
+// 整图 contain 铺底 + 锁定目标比例的选框; 确认时回传归一化选框。
+// `if` 条件实例化: 每次打开都是新实例, init 重新居中选框。
+component CropOverlay inherits Rectangle {
+    width: 100%;
+    height: 100%;
+    background: #000000aa;
+
+    VerticalLayout {
+        // ⛔ 本组件 inherits Rectangle 而非 Window, 没有 safe-area-insets;
+        // 弹层只是窗口内覆盖层, 固定边距即可
+        padding: 16px;
+        spacing: 12px;
+
+        Text {
+            text: "裁剪 · 比例已锁定 " + IdPhotoModel.photo-w-mm().to-fixed(0) + ":" + IdPhotoModel.photo-h-mm().to-fixed(0)
+                + " —— 拖动移动, 拖四角缩放";
+            font-size: 13px;
+            color: #ffffffdd;
+            wrap: word-wrap;
+        }
+
+        // —— 裁剪卡: 整图 contain 铺底 + 目标比例选框 ——
+        crop-card := Rectangle {
+            vertical-stretch: 1;
+            min-height: 200px;
+            border-radius: 16px;
+            background: #1c1f24;
+            clip: true;
+
+            // contain 换算
+            property <bool> has-full: IdPhotoModel.full-w > 0.0 && IdPhotoModel.full-h > 0.0;
+            property <length> img-w: self.has-full
+                ? Math.min(self.width, self.height * IdPhotoModel.full-w / IdPhotoModel.full-h)
+                : 0px;
+            property <length> img-h: self.has-full
+                ? Math.min(self.height, self.width * IdPhotoModel.full-h / IdPhotoModel.full-w)
+                : 0px;
+            property <length> img-x: (self.width - self.img-w) / 2;
+            property <length> img-y: (self.height - self.img-h) / 2;
+
+            // 选框宽高比 = 目标照片宽/高(如 1寸 25:35); 高随宽联动
+            property <float> ratio: IdPhotoModel.photo-w-mm() / IdPhotoModel.photo-h-mm();
+
+            // 选框宽度可缩放(角部手柄拖拽): 显示值钳在 [max/4, max];
+            // max 保证框高不超绘制矩形(img-h * ratio 是宽度上限)
+            property <length> frame-max-w: Math.min(self.img-w, self.img-h * self.ratio);
+            property <length> frame-min-w: self.frame-max-w / 4;
+            in-out property <length> frame-w: self.frame-max-w;
+            property <length> frame-h: self.frame-w / self.ratio;
+            // 选框左上角(存原始值, 显示时钳进绘制矩形), 初始居中
+            in-out property <length> frame-px: (self.img-w - self.frame-w) / 2;
+            in-out property <length> frame-py: (self.img-h - self.frame-h) / 2;
+            property <length> sq-x: self.img-x + Math.max(0px, Math.min(self.img-w - self.frame-w, self.frame-px));
+            property <length> sq-y: self.img-y + Math.max(0px, Math.min(self.img-h - self.frame-h, self.frame-py));
+
+            // 统一写回(移动/四角缩放共用): 宽钳 [min, max], 高随比例联动,
+            // 位置钳进绘制矩形。先写宽再钳位置(位置上限依赖钳后的 frame-h)。
+            function apply-crop(new-w: length, new-px: length, new-py: length) {
+                self.frame-w = Math.max(self.frame-min-w, Math.min(self.frame-max-w, new-w));
+                self.frame-px = Math.max(0px, Math.min(self.img-w - self.frame-w, new-px));
+                self.frame-py = Math.max(0px, Math.min(self.img-h - self.frame-h, new-py));
+            }
+
+            if self.has-full: Image {
+                x: parent.img-x;
+                y: parent.img-y;
+                width: parent.img-w;
+                height: parent.img-h;
+                source: IdPhotoModel.full-preview;
+                image-fit: ImageFit.fill;
+            }
+
+            // 选框外遮罩(四条暗区)
+            Rectangle {
+                x: parent.img-x;
+                y: parent.img-y;
+                width: crop-card.sq-x - parent.img-x;
+                height: parent.img-h;
+                background: #00000066;
+            }
+            Rectangle {
+                x: crop-card.sq-x + crop-card.frame-w;
+                y: parent.img-y;
+                width: parent.img-x + parent.img-w - crop-card.sq-x - crop-card.frame-w;
+                height: parent.img-h;
+                background: #00000066;
+            }
+            Rectangle {
+                x: crop-card.sq-x;
+                y: parent.img-y;
+                width: crop-card.frame-w;
+                height: crop-card.sq-y - parent.img-y;
+                background: #00000066;
+            }
+            Rectangle {
+                x: crop-card.sq-x;
+                y: crop-card.sq-y + crop-card.frame-h;
+                width: crop-card.frame-w;
+                height: parent.img-y + parent.img-h - crop-card.sq-y - crop-card.frame-h;
+                background: #00000066;
+            }
+
+            // 选框: 白边 + 三分线
+            Rectangle {
+                x: crop-card.sq-x;
+                y: crop-card.sq-y;
+                width: crop-card.frame-w;
+                height: crop-card.frame-h;
+                border-width: 2px;
+                border-color: #ffffff;
+
+                Rectangle {
+                    x: (parent.width - 1px) / 3;
+                    y: 0;
+                    width: 1px;
+                    height: parent.height;
+                    background: #ffffff77;
+                }
+                Rectangle {
+                    x: (parent.width - 1px) * 2 / 3;
+                    y: 0;
+                    width: 1px;
+                    height: parent.height;
+                    background: #ffffff77;
+                }
+                Rectangle {
+                    x: 0;
+                    y: (parent.height - 1px) / 3;
+                    width: parent.width;
+                    height: 1px;
+                    background: #ffffff77;
+                }
+                Rectangle {
+                    x: 0;
+                    y: (parent.height - 1px) * 2 / 3;
+                    width: parent.width;
+                    height: 1px;
+                    background: #ffffff77;
+                }
+            }
+
+            // 拖动选框: 盖住整个绘制矩形(声明最后 = 最上层)
+            drag := TouchArea {
+                x: parent.img-x;
+                y: parent.img-y;
+                width: parent.img-w;
+                height: parent.img-h;
+
+                property <length> last-x: 0px;
+                property <length> last-y: 0px;
+                changed pressed => {
+                    if (self.pressed) {
+                        self.last-x = self.mouse-x;
+                        self.last-y = self.mouse-y;
+                    }
+                }
+                moved => {
+                    crop-card.apply-crop(
+                        crop-card.frame-w,
+                        crop-card.frame-px + self.mouse-x - self.last-x,
+                        crop-card.frame-py + self.mouse-y - self.last-y,
+                    );
+                    self.last-x = self.mouse-x;
+                    self.last-y = self.mouse-y;
+                }
+            }
+
+            // 四角缩放手柄(声明在 drag 之后 = 更上层; 热区贴选框角内侧)。
+            // 对角锚定 + 比例联动: 纵向位移按宽高比折算成等效宽度增量,
+            // 取两轴大者驱动。
+            CropHandle {
+                corner: 0;
+                x: crop-card.sq-x;
+                y: crop-card.sq-y;
+                resize-delta(dx, dy) => {
+                    crop-card.apply-crop(
+                        crop-card.frame-w - Math.max(dx, dy * crop-card.ratio),
+                        crop-card.frame-px + Math.max(dx, dy * crop-card.ratio),
+                        crop-card.frame-py + Math.max(dx, dy * crop-card.ratio) / crop-card.ratio,
+                    );
+                }
+            }
+            CropHandle {
+                corner: 1;
+                x: crop-card.sq-x + crop-card.frame-w - self.width;
+                y: crop-card.sq-y;
+                resize-delta(dx, dy) => {
+                    crop-card.apply-crop(
+                        crop-card.frame-w + Math.max(-dx, dy * crop-card.ratio),
+                        crop-card.frame-px,
+                        crop-card.frame-py - Math.max(-dx, dy * crop-card.ratio) / crop-card.ratio,
+                    );
+                }
+            }
+            CropHandle {
+                corner: 2;
+                x: crop-card.sq-x;
+                y: crop-card.sq-y + crop-card.frame-h - self.height;
+                resize-delta(dx, dy) => {
+                    crop-card.apply-crop(
+                        crop-card.frame-w + Math.max(-dx, -dy * crop-card.ratio),
+                        crop-card.frame-px - Math.max(-dx, -dy * crop-card.ratio),
+                        crop-card.frame-py,
+                    );
+                }
+            }
+            CropHandle {
+                corner: 3;
+                x: crop-card.sq-x + crop-card.frame-w - self.width;
+                y: crop-card.sq-y + crop-card.frame-h - self.height;
+                resize-delta(dx, dy) => {
+                    crop-card.apply-crop(
+                        crop-card.frame-w + Math.max(dx, dy * crop-card.ratio),
+                        crop-card.frame-px,
+                        crop-card.frame-py,
+                    );
+                }
+            }
+        }
+
+        // —— 底部操作: 取消 + 确认裁剪 ——
+        HorizontalLayout {
+            min-height: 46px;
+            max-height: 46px;
+            spacing: 12px;
+
+            Rectangle {
+                horizontal-stretch: 1;
+                border-radius: 23px;
+                background: #ffffff22;
+                border-width: 1px;
+                border-color: #ffffff55;
+
+                Text {
+                    text: "取消";
+                    font-size: 15px;
+                    color: #ffffff;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                TouchArea {
+                    clicked => { IdPhotoModel.crop-open = false; }
+                }
+            }
+
+            Rectangle {
+                horizontal-stretch: 1;
+                border-radius: 23px;
+                background: IdPhotoModel.accent;
+
+                Text {
+                    text: "确认裁剪";
+                    font-size: 15px;
+                    font-weight: 600;
+                    color: #ffffff;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                TouchArea {
+                    enabled: crop-card.has-full;
+                    clicked => {
+                        IdPhotoModel.confirm-crop(
+                            (crop-card.sq-x - crop-card.img-x) / crop-card.img-w,
+                            (crop-card.sq-y - crop-card.img-y) / crop-card.img-h,
+                            crop-card.frame-w / crop-card.img-w,
+                            crop-card.frame-h / crop-card.img-h,
+                        );
+                        // 先收弹层再等 Rust 裁剪: 完成后主视图预览点亮
+                        IdPhotoModel.crop-open = false;
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component MainWindow inherits Window {
+    // ===== 主题色(浅色, 干净证件风) =====
+    property <color> bg: #f5f6f8;
+    property <color> card: #ffffff;
+    property <color> border: #e3e6ea;
+    property <color> text-strong: #1a1a1f;
+    property <color> text-weak: #6b7280;
+
+    title: "第二十篇 · 证件照排版";
+    background: bg;
+    default-font-family: IdPhotoModel.font-family;
+    min-width: 360px;
+    min-height: 640px;
+    preferred-width: 440px;
+    preferred-height: 800px;
+
+    // 选图解码完成镜像(changed 不接受全局属性 → 本地双向别名):
+    // Rust 每解码完一张图自增 crop-epoch, 这里据此弹出比例裁剪层。
+    in-out property <int> crop-epoch <=> IdPhotoModel.crop-epoch;
+    changed crop-epoch => {
+        IdPhotoModel.crop-open = true;
+    }
+
+    VerticalLayout {
+        padding-top: 16px + root.safe-area-insets.top;
+        padding-bottom: 16px + root.safe-area-insets.bottom;
+        padding-left: 18px + root.safe-area-insets.left;
+        padding-right: 18px + root.safe-area-insets.right;
+        spacing: 12px;
+
+        // ===== 标题 =====
+        VerticalLayout {
+            spacing: 2px;
+            Text { text: "证件照排版 · ID Photo"; font-size: 22px; font-weight: 700; color: text-strong; }
+            Text { text: "裁一张照片, 自动排满一张相纸"; font-size: 12px; color: text-weak; }
+        }
+
+        // ===== 打印纸排版预览(方形优先, stretch 吃掉剩余空间) =====
+        paper-card := Rectangle {
+            vertical-stretch: 1;
+            min-height: 220px;
+            border-radius: 16px;
+            background: #eceef1;
+            clip: true;
+
+            // contain 换算: 纸张矩形按纵横比铺进卡片
+            property <float> pw-mm: IdPhotoModel.paper-w-mm();
+            property <float> ph-mm: IdPhotoModel.paper-h-mm();
+            property <length> paper-w: Math.min(self.width - 24px, (self.height - 24px) * self.pw-mm / self.ph-mm);
+            property <length> paper-h: self.paper-w * self.ph-mm / self.pw-mm;
+            property <length> paper-x: (self.width - self.paper-w) / 2;
+            property <length> paper-y: (self.height - self.paper-h) / 2;
+
+            paper := Rectangle {
+                x: paper-card.paper-x;
+                y: paper-card.paper-y;
+                width: paper-card.paper-w;
+                height: paper-card.paper-h;
+                background: #FFFFFF;
+                border-width: 1px;
+                border-color: #d0d4da;
+
+                // mm → 预览像素比例
+                property <length> scale: paper-card.paper-w / paper-card.pw-mm;
+
+                // 排版块: 位置由排版公式给出(off + col×tileW), 有图铺照片,
+                // 无图画引导线框
+                // ⛔ 块属性不能叫 col/row: 与内置属性重名
+                for t[i] in IdPhotoModel.count(): Rectangle {
+                    property <float> tile-col: mod(i * 1.0, IdPhotoModel.cols() * 1.0);
+                    property <float> tile-row: Math.floor(i * 1.0 / IdPhotoModel.cols());
+
+                    x: (IdPhotoModel.off-x-mm() + tile-col * IdPhotoModel.tile-w-mm()) * paper.scale;
+                    y: (IdPhotoModel.off-y-mm() + tile-row * IdPhotoModel.tile-h-mm()) * paper.scale;
+                    width: IdPhotoModel.tile-w-mm() * paper.scale;
+                    height: IdPhotoModel.tile-h-mm() * paper.scale;
+                    background: IdPhotoModel.border-enabled ? #FFFFFF : transparent;
+                    // 引导线只给空态(选图前看格子); 有图后必须无线 —— 无边框
+                    // 设置时预览要与导出一致(照片无缝拼贴, 导出 tile 即照片)
+                    border-width: IdPhotoModel.has-image ? 0 : 1px;
+                    border-color: #9aa2ad;
+                    clip: true;
+
+                    // 直立块: 照片贴边框内缘
+                    if IdPhotoModel.has-image && !IdPhotoModel.rotated(): Image {
+                        x: IdPhotoModel.border-mm() * paper.scale;
+                        y: IdPhotoModel.border-mm() * paper.scale;
+                        width: IdPhotoModel.photo-w-mm() * paper.scale;
+                        height: IdPhotoModel.photo-h-mm() * paper.scale;
+                        source: IdPhotoModel.preview;
+                        image-fit: ImageFit.fill;
+                    }
+
+                    // 旋转块: 照片转 90°(视觉宽高互换), 以块中心为轴放置
+                    if IdPhotoModel.has-image && IdPhotoModel.rotated(): Image {
+                        width: IdPhotoModel.photo-w-mm() * paper.scale;
+                        height: IdPhotoModel.photo-h-mm() * paper.scale;
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        source: IdPhotoModel.preview;
+                        image-fit: ImageFit.fill;
+                        transform-rotation: 90deg;
+                    }
+                }
+            }
+
+            // ===== 张数徽标(纸右上角) =====
+            Rectangle {
+                x: paper-card.paper-x + paper-card.paper-w - self.width - 6px;
+                y: paper-card.paper-y + 6px;
+                width: count-lb.preferred-width + 16px;
+                height: 24px;
+                border-radius: 12px;
+                background: IdPhotoModel.accent;
+
+                count-lb := Text {
+                    x: 8px;
+                    y: 0;
+                    height: parent.height;
+                    vertical-alignment: center;
+                    text: (IdPhotoModel.count() * 1.0).to-fixed(0) + " 张";
+                    font-size: 11px;
+                    font-weight: 600;
+                    color: #ffffff;
+                }
+            }
+
+            // 移除照片(徽标左侧悬浮圆钮)
+            if IdPhotoModel.has-image: Rectangle {
+                x: paper-card.paper-x + paper-card.paper-w - self.width - count-lb.preferred-width - 30px;
+                y: paper-card.paper-y + 6px;
+                width: 24px;
+                height: 24px;
+                border-radius: 12px;
+                background: #ffffff;
+                border-width: 1px;
+                border-color: #d0d4da;
+
+                Text {
+                    text: "✕";
+                    font-size: 12px;
+                    color: text-weak;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                TouchArea {
+                    clicked => { IdPhotoModel.clear-image(); }
+                }
+            }
+
+            // ===== 空态: 整纸可点选图 =====
+            if !IdPhotoModel.has-image: TouchArea {
+                x: paper-card.paper-x;
+                y: paper-card.paper-y;
+                width: paper-card.paper-w;
+                height: paper-card.paper-h;
+                clicked => { IdPhotoModel.select-image(); }
+            }
+            if !IdPhotoModel.has-image: Text {
+                x: paper-card.paper-x;
+                width: paper-card.paper-w;
+                y: paper-card.paper-y + paper-card.paper-h / 2 - 20px;
+                text: "点纸面选一张照片";
+                font-size: 14px;
+                font-weight: 500;
+                horizontal-alignment: center;
+                color: text-strong;
+            }
+            if !IdPhotoModel.has-image: Text {
+                x: paper-card.paper-x;
+                width: paper-card.paper-w;
+                y: paper-card.paper-y + paper-card.paper-h / 2 + 4px;
+                text: "裁剪后自动铺满整张相纸";
+                font-size: 12px;
+                horizontal-alignment: center;
+                color: text-weak;
+            }
+        }
+
+        // ===== 排版结果行 =====
+        Text {
+            height: 16px;
+            text: IdPhotoModel.count() > 0
+                ? "可排 " + (IdPhotoModel.count() * 1.0).to-fixed(0) + " 张 · 照片 "
+                    + (IdPhotoModel.photo-w-px() * 1.0).to-fixed(0) + "×" + (IdPhotoModel.photo-h-px() * 1.0).to-fixed(0)
+                    + " px · 相纸 " + (IdPhotoModel.paper-w-px() * 1.0).to-fixed(0) + "×" + (IdPhotoModel.paper-h-px() * 1.0).to-fixed(0) + " px @300dpi"
+                : " ";
+            font-size: 12px;
+            color: text-weak;
+            horizontal-alignment: center;
+        }
+
+        // ===== 控制区: 三行同构(标签 + 选项胶囊) =====
+        VerticalLayout {
+            spacing: 8px;
+
+            HorizontalLayout {
+                height: 30px;
+                spacing: 8px;
+                alignment: start;
+
+                Text {
+                    width: 64px;
+                    text: "目标尺寸";
+                    font-size: 13px;
+                    color: text-weak;
+                    vertical-alignment: center;
+                }
+                Chip {
+                    label: "1寸 25×35";
+                    active: IdPhotoModel.target-index == 0;
+                    clicked => { IdPhotoModel.target-index = 0; }
+                }
+                Chip {
+                    label: "2寸 35×49";
+                    active: IdPhotoModel.target-index == 1;
+                    clicked => { IdPhotoModel.target-index = 1; }
+                }
+            }
+
+            HorizontalLayout {
+                height: 30px;
+                spacing: 8px;
+                alignment: start;
+
+                Text {
+                    width: 64px;
+                    text: "打印纸";
+                    font-size: 13px;
+                    color: text-weak;
+                    vertical-alignment: center;
+                }
+                Chip {
+                    label: "6寸 102×152";
+                    active: IdPhotoModel.paper-index == 0;
+                    clicked => { IdPhotoModel.paper-index = 0; }
+                }
+                Chip {
+                    label: "7寸 127×178";
+                    active: IdPhotoModel.paper-index == 1;
+                    clicked => { IdPhotoModel.paper-index = 1; }
+                }
+            }
+
+            HorizontalLayout {
+                height: 30px;
+                spacing: 8px;
+                alignment: start;
+
+                Text {
+                    width: 64px;
+                    text: "裁切边框";
+                    font-size: 13px;
+                    color: text-weak;
+                    vertical-alignment: center;
+                }
+                Chip {
+                    label: "无边框";
+                    active: !IdPhotoModel.border-enabled;
+                    clicked => { IdPhotoModel.border-enabled = false; }
+                }
+                Chip {
+                    label: "1 mm";
+                    active: IdPhotoModel.border-enabled && IdPhotoModel.border-width == 1;
+                    clicked => { IdPhotoModel.border-enabled = true; IdPhotoModel.border-width = 1; }
+                }
+                Chip {
+                    label: "2 mm";
+                    active: IdPhotoModel.border-enabled && IdPhotoModel.border-width == 2;
+                    clicked => { IdPhotoModel.border-enabled = true; IdPhotoModel.border-width = 2; }
+                }
+                Chip {
+                    label: "3 mm";
+                    active: IdPhotoModel.border-enabled && IdPhotoModel.border-width == 3;
+                    clicked => { IdPhotoModel.border-enabled = true; IdPhotoModel.border-width = 3; }
+                }
+            }
+        }
+
+        // ===== 操作区 =====
+        HorizontalLayout {
+            min-height: 46px;
+            max-height: 46px;
+            spacing: 12px;
+
+            Rectangle {
+                horizontal-stretch: 1;
+                border-radius: 23px;
+                background: card;
+                border-width: 1px;
+                border-color: border;
+
+                Text {
+                    text: "重新选图";
+                    font-size: 15px;
+                    color: text-strong;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                TouchArea {
+                    clicked => { IdPhotoModel.select-image(); }
+                }
+            }
+
+            Rectangle {
+                horizontal-stretch: 1;
+                border-radius: 23px;
+                background: IdPhotoModel.has-image ? IdPhotoModel.accent : #c5cbd3;
+
+                Text {
+                    text: "导出排版图";
+                    font-size: 15px;
+                    font-weight: 600;
+                    color: #ffffff;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                TouchArea {
+                    enabled: IdPhotoModel.has-image;
+                    clicked => { IdPhotoModel.export(); }
+                }
+            }
+        }
+
+        // ===== 状态行 =====
+        Text {
+            height: 16px;
+            text: IdPhotoModel.status;
+            font-size: 12px;
+            color: text-weak;
+            horizontal-alignment: center;
+            overflow: elide;
+        }
+    }
+
+    // ===== 比例裁剪弹层(条件实例化, 每次打开都是新实例) =====
+    if IdPhotoModel.crop-open: CropOverlay {}
+}

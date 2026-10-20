@@ -590,6 +590,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "article-20"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "slint",
+ "slint-build",
+ "slint-file-picker",
+ "slint-fs",
+]
+
+[[package]]
 name = "as-raw-xcb-connection"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
