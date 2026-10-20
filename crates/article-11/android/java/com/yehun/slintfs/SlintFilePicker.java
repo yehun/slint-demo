@@ -21,9 +21,32 @@ import android.content.Intent;
 public class SlintFilePicker {
     public static final int REQUEST_CODE_PICK_FILE = 10001;
     public static final int REQUEST_CODE_SAVE_FILE = 10002;
+    public static final int REQUEST_CODE_PICK_IMAGE = 10003;
 
     /** Java → Rust: 结果回传 (Rust 侧以 no_mangle 导出对应符号) */
     public static native void onPicked(int requestCode, int resultCode, String uri);
+
+    /** 相册选图: Android 13+ 系统照片选择器 / 低版本 ACTION_PICK 相册 */
+    public static void pickImage(Activity activity) {
+        // ⛔ 必须在 UI 线程发起: Slint 事件循环跑在 android-activity 的原生胶水
+        // 线程上, 直接调 startActivityForResult 会踩 MIUI 等 ROM 注入的启动钩子
+        activity.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                Intent intent;
+                if (android.os.Build.VERSION.SDK_INT >= 33) {
+                    // Android 13+: 系统照片选择器(直进选择界面, 不出应用选择弹窗);
+                    // type 仅收图片, 结果仍是 content:// URI 带临时读授权
+                    intent = new Intent(android.provider.MediaStore.ACTION_PICK_IMAGES);
+                    intent.setType("image/*");
+                } else {
+                    intent = new Intent(Intent.ACTION_PICK,
+                            android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
+                }
+                activity.startActivityForResult(intent, REQUEST_CODE_PICK_IMAGE);
+            }
+        });
+    }
 
     /** 打开已有文件: ACTION_OPEN_DOCUMENT */
     public static void open(Activity activity, String[] mimeTypes) {
@@ -72,7 +95,9 @@ public class SlintFilePicker {
 
     /** demo 的 MainActivity.onActivityResult 里调用这一行 */
     public static void handle(int requestCode, int resultCode, Intent data) {
-        if (requestCode != REQUEST_CODE_PICK_FILE && requestCode != REQUEST_CODE_SAVE_FILE) {
+        if (requestCode != REQUEST_CODE_PICK_FILE
+                && requestCode != REQUEST_CODE_SAVE_FILE
+                && requestCode != REQUEST_CODE_PICK_IMAGE) {
             return;
         }
         String uri = (data != null && data.getData() != null) ? data.getData().toString() : null;

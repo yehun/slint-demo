@@ -53,6 +53,23 @@ pub fn pick_file_to_save(
     run_dialog(Some(default_name.into()), filters, callback);
 }
 
+/// 相册选图 (desktop 等价实现: 图片文件对话框)
+pub fn pick_image(callback: impl FnOnce(PickResult) + Send + 'static) {
+    pick_file(
+        vec![
+            FileFilter::new("图片")
+                .extension("png")
+                .extension("jpg")
+                .extension("jpeg")
+                .extension("bmp")
+                .extension("gif")
+                .extension("webp"),
+            FileFilter::new("所有文件"),
+        ],
+        callback,
+    );
+}
+
 /// 打开文件选择对话框 (多选)
 pub fn pick_files(
     filters: Vec<FileFilter>,

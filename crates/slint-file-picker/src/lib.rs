@@ -95,6 +95,7 @@ pub use desktop::{
     pick_file,
     pick_file_to_save,
     pick_files,
+    pick_image,
 };
 
 #[cfg(target_os = "android")]
@@ -102,5 +103,6 @@ pub use android::{
     pick_file,
     pick_file_to_save,
     pick_files,
+    pick_image,
     set_activity,
 };

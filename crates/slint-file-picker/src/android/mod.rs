@@ -37,8 +37,7 @@ pub fn set_activity(activity_ptr: *mut std::ffi::c_void) {
     let _ = ACTIVITY_PTR.set(activity_ptr as usize);
 }
 
-fn java_vm() -> &'static JavaVM {
-    JVM.get_or_init(|| {
+fn java_vm() -> &'static JavaVM {    JVM.get_or_init(|| {
         let vm_ptr = ndk_context::android_context().vm();
         unsafe { JavaVM::from_raw(vm_ptr as *mut _) }
     })
@@ -185,6 +184,27 @@ fn wait_and_notify(callback: impl FnOnce(PickResult) + Send + 'static) {
             Err(e) => PickResult::Error(e.to_string()),
         });
     });
+}
+
+/// 相册选图: ACTION_PICK 走系统相册界面(而非 SAF 文件面板)。
+/// 结果是 MediaStore 的 content:// URI, PlatformPath 直接可读。
+pub fn pick_image(callback: impl FnOnce(PickResult) + Send + 'static) {
+    let r = with_env_jni(|env| {
+        let cls = picker_class(env)?;
+        let activity = activity(env)?;
+        let r = env.call_static_method(
+            &cls,
+            jni_str!("pickImage"),
+            jni_sig!((android.app.Activity) -> void),
+            &[JValue::Object(&activity)],
+        ).map(|_| ());
+        dump_if_exception(env, r)
+    }).map_err(|e| e.to_string());
+    if let Err(e) = r {
+        callback(PickResult::Error(e));
+        return;
+    }
+    wait_and_notify(callback);
 }
 
 /// 打开文件选择对话框 (选择已有文件)

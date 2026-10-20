@@ -194,17 +194,8 @@ fn load_model(state: Arc<AppState>, dir: PathBuf) {
 }
 
 fn pick_image(state: Arc<AppState>) {
-    pick_file(
-        vec![
-            FileFilter::new("图片")
-                .extension("png")
-                .extension("jpg")
-                .extension("jpeg")
-                .extension("bmp")
-                .extension("gif")
-                .mime("image/*"),
-            FileFilter::new("所有文件").mime("*/*"),
-        ],
+    // 相册选图(Android ACTION_PICK / 桌面图片对话框)
+    slint_file_picker::pick_image(
         move |result| match result {
             PickResult::Picked(p) => apply_image(state.clone(), PathBuf::from(p.to_string())),
             PickResult::Cancelled => {}
